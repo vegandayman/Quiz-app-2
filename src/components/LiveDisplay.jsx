@@ -173,7 +173,7 @@ export default function LiveDisplay({ roomCode: initialRoomCode = '' }) {
   useEffect(() => {
     if (roomData?.status !== 'question') return;
 
-    const duration = roomData?.timeLimit || 20;
+    const duration = roomData?.timeLimit || 60;
     const startTime = roomData?.questionStartTime || Date.now();
 
     const interval = setInterval(() => {

@@ -162,7 +162,7 @@ const splashPresets = [
  * - Imports previously saved JSON files
  * - Saves directly to the live Firebase room
  */
-export default function QuizMaker({ initialQuestions = [], initialShowScoreboardAfterQuestion = true, onSaveQuiz, onClose }) {
+export default function QuizMaker({ initialQuestions = [], initialShowScoreboardAfterQuestion = false, onSaveQuiz, onClose }) {
   const [quizTitle, setQuizTitle] = useState('My Custom Quiz');
   const [showScoreboardAfterQuestion, setShowScoreboardAfterQuestion] = useState(() => initialShowScoreboardAfterQuestion);
   const [questions, setQuestions] = useState(() => {
@@ -184,6 +184,7 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
             correctAnswer: q.correctAnswer || '',
             acceptedAnswers: q.acceptedAnswers || '',
             points: q.points !== undefined && q.points !== '' ? Number(q.points) : 1,
+            timeLimit: q.timeLimit || 60,
             showScoreboardAfterQuestion: q.showScoreboardAfterQuestion !== undefined ? Boolean(q.showScoreboardAfterQuestion) : initialShowScoreboardAfterQuestion
           };
         }
@@ -191,6 +192,7 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
           ...q,
           type: 'question',
           points: q.points !== undefined && q.points !== '' ? Number(q.points) : 1,
+          timeLimit: q.timeLimit || 60,
           showScoreboardAfterQuestion: q.showScoreboardAfterQuestion !== undefined ? Boolean(q.showScoreboardAfterQuestion) : initialShowScoreboardAfterQuestion
         };
       });
@@ -204,8 +206,8 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
         correctIndex: 1,
         points: 1,
         secretNote: 'Saturn has 146 confirmed moons.',
-        timeLimit: 20,
-        showScoreboardAfterQuestion: true
+        timeLimit: 60,
+        showScoreboardAfterQuestion: false
       },
       {
         id: 2,
@@ -222,8 +224,8 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
         correctIndex: 1,
         points: 1,
         secretNote: 'The Buggles released the single in 1979.',
-        timeLimit: 20,
-        showScoreboardAfterQuestion: true
+        timeLimit: 60,
+        showScoreboardAfterQuestion: false
       },
       {
         id: 4,
@@ -233,8 +235,8 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
         acceptedAnswers: 'Spider-Man, Spiderman, Spyderman, Peter Parker',
         points: 1,
         secretNote: 'Spider-Man made his first appearance in Amazing Fantasy #15 in 1962.',
-        timeLimit: 20,
-        showScoreboardAfterQuestion: true
+        timeLimit: 60,
+        showScoreboardAfterQuestion: false
       }
     ];
   });
@@ -285,7 +287,7 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
     );
   };
 
-  // Add new question slide
+  // Add new question slide (inserted after the currently selected slide)
   const handleAddQuestion = () => {
     const newQuestion = {
       id: Date.now(),
@@ -295,15 +297,18 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
       correctIndex: 0,
       points: 1,
       secretNote: '',
-      timeLimit: 20,
+      timeLimit: 60,
       showScoreboardAfterQuestion: showScoreboardAfterQuestion
     };
-    const updated = [...questions, newQuestion];
+    const insertIndex = activeIdx >= 0 && activeIdx < questions.length ? activeIdx + 1 : questions.length;
+    const updated = [...questions];
+    updated.splice(insertIndex, 0, newQuestion);
     setQuestions(updated);
-    setActiveIdx(updated.length - 1);
+    setActiveIdx(insertIndex);
+    showNotification(`New Question added after slide #${activeIdx + 1}!`);
   };
 
-  // Add new free-input question slide
+  // Add new free-input question slide (inserted after the currently selected slide)
   const handleAddFreeInput = () => {
     const newFreeInput = {
       id: Date.now(),
@@ -313,13 +318,15 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
       acceptedAnswers: 'Spider-Man, Spiderman, Spyderman, Peter Parker',
       points: 1,
       secretNote: 'Spider-Man made his first appearance in Amazing Fantasy #15 in 1962.',
-      timeLimit: 20,
+      timeLimit: 60,
       showScoreboardAfterQuestion: showScoreboardAfterQuestion
     };
-    const updated = [...questions, newFreeInput];
+    const insertIndex = activeIdx >= 0 && activeIdx < questions.length ? activeIdx + 1 : questions.length;
+    const updated = [...questions];
+    updated.splice(insertIndex, 0, newFreeInput);
     setQuestions(updated);
-    setActiveIdx(updated.length - 1);
-    showNotification('Free-input question added! Players will type their answers on their phones.');
+    setActiveIdx(insertIndex);
+    showNotification(`New Free-Input Question added after slide #${activeIdx + 1}!`);
   };
 
   // Switch active slide question type (between 4-choice Multiple Choice and Free Input)
@@ -349,7 +356,7 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
     setQuestions(updated);
   };
 
-  // Add new splash screen slide
+  // Add new splash screen slide (inserted after the currently selected slide)
   const handleAddSplash = () => {
     const newSplash = {
       id: Date.now(),
@@ -358,10 +365,12 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
       subtitle: 'Get ready for round two! Listen closely to the clues.',
       imageUrl: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?auto=format&fit=crop&w=800&q=80'
     };
-    const updated = [...questions, newSplash];
+    const insertIndex = activeIdx >= 0 && activeIdx < questions.length ? activeIdx + 1 : questions.length;
+    const updated = [...questions];
+    updated.splice(insertIndex, 0, newSplash);
     setQuestions(updated);
-    setActiveIdx(updated.length - 1);
-    showNotification('Splash screen added! Drag or move to place between questions.');
+    setActiveIdx(insertIndex);
+    showNotification(`New Splash Screen added after slide #${activeIdx + 1}!`);
   };
 
   // Delete slide
@@ -517,7 +526,7 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
               acceptedAnswers: q.acceptedAnswers || '',
               points: typeof q.points === 'number' && !isNaN(q.points) ? Math.max(0, Math.min(100000, q.points)) : 1,
               secretNote: q.secretNote || '',
-              timeLimit: q.timeLimit || 20,
+              timeLimit: q.timeLimit || 60,
               showScoreboardAfterQuestion: q.showScoreboardAfterQuestion !== undefined
                 ? Boolean(q.showScoreboardAfterQuestion)
                 : defaultScoreboardVal
@@ -532,7 +541,7 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
             correctIndex: typeof q.correctIndex === 'number' && q.correctIndex >= 0 && q.correctIndex < 4 ? q.correctIndex : 0,
             points: typeof q.points === 'number' && !isNaN(q.points) ? Math.max(0, Math.min(100000, q.points)) : 1,
             secretNote: q.secretNote || '',
-            timeLimit: q.timeLimit || 20,
+            timeLimit: q.timeLimit || 60,
             showScoreboardAfterQuestion: q.showScoreboardAfterQuestion !== undefined
               ? Boolean(q.showScoreboardAfterQuestion)
               : defaultScoreboardVal
@@ -847,21 +856,33 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
             </div>
           </div>
 
-          {/* Bottom Dual Add Buttons */}
-          <div className="grid grid-cols-2 gap-2 mt-4 pt-3 border-t border-slate-800">
+          {/* Bottom Add Buttons */}
+          <div className="grid grid-cols-3 gap-1.5 mt-4 pt-3 border-t border-slate-800">
             <button
               type="button"
               onClick={handleAddQuestion}
-              className="py-2.5 px-2 rounded-xl border border-dashed border-purple-500/50 hover:bg-purple-950/30 text-purple-300 text-xs font-bold flex items-center justify-center gap-1 transition-all cursor-pointer"
+              className="py-2.5 px-1.5 rounded-xl border border-dashed border-purple-500/50 hover:bg-purple-950/30 text-purple-300 text-[11px] font-bold flex items-center justify-center gap-1 transition-all cursor-pointer"
+              title={`Insert Choice Question after slide #${activeIdx + 1}`}
             >
               <PlusIcon className="w-3.5 h-3.5" />
-              <span>+ Question</span>
+              <span>+ Choice</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleAddFreeInput}
+              className="py-2.5 px-1.5 rounded-xl border border-dashed border-cyan-500/50 hover:bg-cyan-950/30 text-cyan-300 text-[11px] font-bold flex items-center justify-center gap-1 transition-all cursor-pointer"
+              title={`Insert Free Text Question after slide #${activeIdx + 1}`}
+            >
+              <KeyboardIcon className="w-3.5 h-3.5" />
+              <span>+ Text</span>
             </button>
 
             <button
               type="button"
               onClick={handleAddSplash}
-              className="py-2.5 px-2 rounded-xl border border-dashed border-amber-500/50 hover:bg-amber-950/30 text-amber-300 text-xs font-bold flex items-center justify-center gap-1 transition-all cursor-pointer"
+              className="py-2.5 px-1.5 rounded-xl border border-dashed border-amber-500/50 hover:bg-amber-950/30 text-amber-300 text-[11px] font-bold flex items-center justify-center gap-1 transition-all cursor-pointer"
+              title={`Insert Splash Screen after slide #${activeIdx + 1}`}
             >
               <ImageIcon className="w-3.5 h-3.5" />
               <span>+ Splash</span>
@@ -1147,14 +1168,15 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
                     <div className="flex items-center gap-2">
                       <label className="text-xs text-slate-400 font-semibold">Time limit:</label>
                       <select
-                        value={activeQ.timeLimit || 20}
+                        value={activeQ.timeLimit || 60}
                         onChange={(e) => handleUpdateActiveQuestion('timeLimit', Number(e.target.value))}
                         className="bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1 text-xs font-bold text-white outline-none focus:border-purple-500 cursor-pointer"
                       >
-                        <option value={10}>10 seconds</option>
-                        <option value={20}>20 seconds</option>
+                        <option value={15}>15 seconds</option>
                         <option value={30}>30 seconds</option>
                         <option value={60}>60 seconds</option>
+                        <option value={90}>90 seconds</option>
+                        <option value={120}>120 seconds</option>
                       </select>
                     </div>
 

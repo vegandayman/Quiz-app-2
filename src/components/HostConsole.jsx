@@ -125,7 +125,7 @@ const defaultQuestions = [
     correctIndex: 1,
     points: 1,
     secretNote: 'Saturn has 146 confirmed moons, overtaking Jupiter (95 moons) in 2023!',
-    timeLimit: 20
+    timeLimit: 60
   },
   {
     id: 2,
@@ -135,7 +135,7 @@ const defaultQuestions = [
     correctIndex: 0,
     points: 1,
     secretNote: 'Russian cosmonaut Aleksandr Serebrov played Tetris on his Game Boy aboard the Mir Space Station in 1993.',
-    timeLimit: 20
+    timeLimit: 60
   },
   {
     id: 'splash-1',
@@ -152,7 +152,7 @@ const defaultQuestions = [
     correctIndex: 2,
     points: 1,
     secretNote: 'Two hearts pump blood to the gills, while the third circulates it to the rest of the body.',
-    timeLimit: 20
+    timeLimit: 60
   },
   {
     id: 4,
@@ -162,7 +162,7 @@ const defaultQuestions = [
     correctIndex: 1,
     points: 1,
     secretNote: 'Brendan Eich designed Mocha (which became JavaScript) in 10 days for Netscape Navigator.',
-    timeLimit: 20
+    timeLimit: 60
   },
   {
     id: 5,
@@ -172,7 +172,7 @@ const defaultQuestions = [
     acceptedAnswers: 'Spider-Man, Spiderman, Spyderman, Peter Parker',
     points: 1,
     secretNote: 'Spider-Man made his first appearance in Marvel Comics Amazing Fantasy #15 in August 1962.',
-    timeLimit: 20
+    timeLimit: 60
   }
 ];
 
@@ -191,9 +191,9 @@ export default function HostConsole({ onOpenDisplay, onRoomCodeReady }) {
   const [roomData, setRoomData] = useState(null);
   const [currentQIndex, setCurrentQIndex] = useState(0);
   const [activeQuestions, setActiveQuestions] = useState(defaultQuestions);
-  const [showScoreboardAfterQuestion, setShowScoreboardAfterQuestion] = useState(true);
+  const [showScoreboardAfterQuestion, setShowScoreboardAfterQuestion] = useState(false);
   const [isQuizMakerOpen, setIsQuizMakerOpen] = useState(false);
-  const [timeLeft, setTimeLeft] = useState(20);
+  const [timeLeft, setTimeLeft] = useState(60);
 
   // Notify parent of room code
   useEffect(() => {
@@ -213,7 +213,7 @@ export default function HostConsole({ onOpenDisplay, onRoomCodeReady }) {
       status: 'lobby',
       currentQuestionIndex: 0,
       questions: activeQuestions,
-      showScoreboardAfterQuestion: true,
+      showScoreboardAfterQuestion: false,
       createdAt: Date.now()
     }).catch((err) => console.error('Error initializing room:', err));
 
@@ -240,7 +240,7 @@ export default function HostConsole({ onOpenDisplay, onRoomCodeReady }) {
   useEffect(() => {
     if (roomData?.status !== 'question') return;
 
-    const duration = roomData?.timeLimit || 20;
+    const duration = roomData?.timeLimit || 60;
     const startTime = roomData?.questionStartTime || Date.now();
 
     const interval = setInterval(() => {
@@ -391,7 +391,7 @@ export default function HostConsole({ onOpenDisplay, onRoomCodeReady }) {
       status: isSplash ? 'splash' : 'question',
       currentQuestionIndex: 0,
       questionStartTime: Date.now(),
-      timeLimit: firstItem?.timeLimit || 20
+      timeLimit: firstItem?.timeLimit || 60
     });
   };
 
@@ -424,7 +424,7 @@ export default function HostConsole({ onOpenDisplay, onRoomCodeReady }) {
         status: isSplash ? 'splash' : 'question',
         currentQuestionIndex: nextIndex,
         questionStartTime: Date.now(),
-        timeLimit: nextItem?.timeLimit || 20
+        timeLimit: nextItem?.timeLimit || 60
       });
     } else {
       await update(roomRef, {

@@ -238,7 +238,7 @@ export default function PlayerJoin({ initialRoomCode = '' }) {
   useEffect(() => {
     if (roomData?.status !== 'question') return;
 
-    const duration = roomData?.timeLimit || 20;
+    const duration = roomData?.timeLimit || 60;
     const startTime = roomData?.questionStartTime || Date.now();
 
     const interval = setInterval(() => {
@@ -260,7 +260,7 @@ export default function PlayerJoin({ initialRoomCode = '' }) {
 
     // Use custom question points (defaults to 1 if not specified in editor)
     const maxPoints = currentQ?.points !== undefined && currentQ.points !== '' ? Math.max(0, Number(currentQ.points)) : 1;
-    const timeLimit = roomData.timeLimit || currentQ?.timeLimit || 20;
+    const timeLimit = roomData.timeLimit || currentQ?.timeLimit || 60;
     const startTime = roomData.questionStartTime || Date.now();
     const timeElapsedSec = Math.max(0, (Date.now() - startTime) / 1000);
     const speedRatio = Math.max(0, Math.min(1, 1 - (timeElapsedSec / timeLimit) / 2));
@@ -304,7 +304,7 @@ export default function PlayerJoin({ initialRoomCode = '' }) {
     const isCorrect = Boolean(matchResult.isCorrect);
 
     const maxPoints = currentQ?.points !== undefined && currentQ.points !== '' ? Math.max(0, Number(currentQ.points)) : 1;
-    const timeLimit = roomData.timeLimit || currentQ?.timeLimit || 20;
+    const timeLimit = roomData.timeLimit || currentQ?.timeLimit || 60;
     const startTime = roomData.questionStartTime || Date.now();
     const timeElapsedSec = Math.max(0, (Date.now() - startTime) / 1000);
     const speedRatio = Math.max(0, Math.min(1, 1 - (timeElapsedSec / timeLimit) / 2));
@@ -489,7 +489,7 @@ export default function PlayerJoin({ initialRoomCode = '' }) {
                 className={`h-full transition-all duration-500 ${
                   timeLeft <= 5 ? 'bg-rose-500' : 'bg-gradient-to-r from-purple-500 to-indigo-500'
                 }`}
-                style={{ width: `${Math.max(0, Math.min(100, (timeLeft / (roomData?.timeLimit || 20)) * 100))}%` }}
+                style={{ width: `${Math.max(0, Math.min(100, (timeLeft / (roomData?.timeLimit || 60)) * 100))}%` }}
               />
             </div>
 
