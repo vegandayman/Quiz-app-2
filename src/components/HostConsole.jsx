@@ -173,6 +173,15 @@ const defaultQuestions = [
     points: 1,
     secretNote: 'Spider-Man made his first appearance in Marvel Comics Amazing Fantasy #15 in August 1962.',
     timeLimit: 60
+  },
+  {
+    id: 'final-end-screen',
+    type: 'end',
+    title: "Final Scoreboard & Winners' Podium",
+    subtitle: 'Congratulations to our champions and all participants!',
+    showFullLeaderboard: true,
+    enableConfetti: true,
+    isPermanent: true
   }
 ];
 
@@ -326,9 +335,9 @@ export default function HostConsole({ onOpenDisplay, onRoomCodeReady }) {
           : showScoreboardAfterQuestion)
   );
 
-  // Questions counts
-  const totalQuestions = activeQuestions.filter((q) => q.type !== 'splash').length;
-  const questionsPassed = activeQuestions.slice(0, currentQIndex + 1).filter((q) => q.type !== 'splash').length;
+  // Questions counts (excluding splash and end screens)
+  const totalQuestions = activeQuestions.filter((q) => q.type !== 'splash' && q.type !== 'end').length;
+  const questionsPassed = activeQuestions.slice(0, currentQIndex + 1).filter((q) => q.type !== 'splash' && q.type !== 'end').length;
 
   // Count choices and group players by choice or free text for the current question
   const choiceTally = [0, 0, 0, 0];
@@ -411,7 +420,7 @@ export default function HostConsole({ onOpenDisplay, onRoomCodeReady }) {
     });
   };
 
-  // 4. NEXT SLIDE (Leaderboard / Splash -> Next Question / Splash OR Finished)
+  // 4. NEXT SLIDE (Leaderboard / Splash -> Next Question / Splash OR Final Podium)
   const handleNextQuestion = async () => {
     const nextIndex = currentQIndex + 1;
     const roomRef = ref(db, `rooms/${roomCode}`);
@@ -419,6 +428,15 @@ export default function HostConsole({ onOpenDisplay, onRoomCodeReady }) {
     if (nextIndex < activeQuestions.length) {
       const nextItem = activeQuestions[nextIndex];
       const isSplash = nextItem?.type === 'splash';
+      const isEnd = nextItem?.type === 'end';
+
+      if (isEnd) {
+        await update(roomRef, {
+          status: 'finished',
+          currentQuestionIndex: nextIndex
+        });
+        return;
+      }
 
       await update(roomRef, {
         status: isSplash ? 'splash' : 'question',
@@ -694,8 +712,10 @@ export default function HostConsole({ onOpenDisplay, onRoomCodeReady }) {
                     {currentQIndex + 1 < activeQuestions.length
                       ? activeQuestions[currentQIndex + 1]?.type === 'splash'
                         ? `Continue to: "${activeQuestions[currentQIndex + 1]?.title || 'Next Splash'}"`
-                        : `Start Next Question (${currentQIndex + 2} of ${activeQuestions.length})`
-                      : 'Show Final Winner Podium'}
+                        : activeQuestions[currentQIndex + 1]?.type === 'end'
+                          ? '🏆 Show Final Scoreboard & Podium'
+                          : `Start Next Question (${currentQIndex + 2} of ${totalQuestions})`
+                      : '🏆 Show Final Scoreboard & Podium'}
                   </span>
                   <ArrowRightIcon className="w-5 h-5 text-slate-950" />
                 </button>
@@ -751,8 +771,10 @@ export default function HostConsole({ onOpenDisplay, onRoomCodeReady }) {
                         {currentQIndex + 1 < activeQuestions.length
                           ? activeQuestions[currentQIndex + 1]?.type === 'splash'
                             ? `Continue to: "${activeQuestions[currentQIndex + 1]?.title || 'Splash Screen'}"`
-                            : `Start Question ${currentQIndex + 2} of ${activeQuestions.length}`
-                          : 'Show Final Winner Podium'}
+                            : activeQuestions[currentQIndex + 1]?.type === 'end'
+                              ? '🏆 Show Final Scoreboard & Podium'
+                              : `Start Question ${currentQIndex + 2} of ${totalQuestions}`
+                          : '🏆 Show Final Scoreboard & Podium'}
                       </span>
                       <ArrowRightIcon className="w-5 h-5" />
                     </button>
@@ -779,8 +801,10 @@ export default function HostConsole({ onOpenDisplay, onRoomCodeReady }) {
                     {currentQIndex + 1 < activeQuestions.length
                       ? activeQuestions[currentQIndex + 1]?.type === 'splash'
                         ? `Continue to: "${activeQuestions[currentQIndex + 1]?.title || 'Splash Screen'}"`
-                        : `Start Question ${currentQIndex + 2} of ${activeQuestions.length}`
-                      : 'Show Final Winner Podium'}
+                        : activeQuestions[currentQIndex + 1]?.type === 'end'
+                          ? '🏆 Show Final Scoreboard & Podium'
+                          : `Start Question ${currentQIndex + 2} of ${totalQuestions}`
+                      : '🏆 Show Final Scoreboard & Podium'}
                   </span>
                   <ArrowRightIcon className="w-5 h-5" />
                 </button>

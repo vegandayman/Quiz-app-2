@@ -162,12 +162,35 @@ const splashPresets = [
  * - Imports previously saved JSON files
  * - Saves directly to the live Firebase room
  */
+const DEFAULT_END_SCREEN = {
+  id: 'final-end-screen',
+  type: 'end',
+  title: "Final Scoreboard & Winners' Podium",
+  subtitle: 'Congratulations to our champions and thank you for playing!',
+  showFullLeaderboard: true,
+  enableConfetti: true,
+  isPermanent: true
+};
+
 export default function QuizMaker({ initialQuestions = [], initialShowScoreboardAfterQuestion = false, onSaveQuiz, onClose }) {
   const [quizTitle, setQuizTitle] = useState('My Custom Quiz');
   const [showScoreboardAfterQuestion, setShowScoreboardAfterQuestion] = useState(() => initialShowScoreboardAfterQuestion);
   const [questions, setQuestions] = useState(() => {
     if (initialQuestions && initialQuestions.length > 0) {
-      return JSON.parse(JSON.stringify(initialQuestions)).map((q) => {
+      const parsed = JSON.parse(JSON.stringify(initialQuestions)).map((q) => {
+        if (q.type === 'end') {
+          return {
+            ...DEFAULT_END_SCREEN,
+            ...q,
+            id: q.id || 'final-end-screen',
+            type: 'end',
+            title: q.title || DEFAULT_END_SCREEN.title,
+            subtitle: q.subtitle || DEFAULT_END_SCREEN.subtitle,
+            showFullLeaderboard: q.showFullLeaderboard !== undefined ? Boolean(q.showFullLeaderboard) : true,
+            enableConfetti: q.enableConfetti !== undefined ? Boolean(q.enableConfetti) : true,
+            isPermanent: true
+          };
+        }
         if (q.type === 'splash') {
           return {
             id: q.id || Date.now(),
@@ -196,7 +219,13 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
           showScoreboardAfterQuestion: q.showScoreboardAfterQuestion !== undefined ? Boolean(q.showScoreboardAfterQuestion) : initialShowScoreboardAfterQuestion
         };
       });
+
+      // Ensure the non-removable end screen is always placed at the end
+      const nonEndSlides = parsed.filter((q) => q.type !== 'end');
+      const existingEnd = parsed.find((q) => q.type === 'end') || DEFAULT_END_SCREEN;
+      return [...nonEndSlides, existingEnd];
     }
+
     return [
       {
         id: 1,
@@ -237,6 +266,9 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
         secretNote: 'Spider-Man made his first appearance in Amazing Fantasy #15 in 1962.',
         timeLimit: 60,
         showScoreboardAfterQuestion: false
+      },
+      {
+        ...DEFAULT_END_SCREEN
       }
     ];
   });
@@ -287,7 +319,7 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
     );
   };
 
-  // Add new question slide (inserted after the currently selected slide)
+  // Add new question slide (inserted after currently selected slide, before the end screen)
   const handleAddQuestion = () => {
     const newQuestion = {
       id: Date.now(),
@@ -300,7 +332,9 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
       timeLimit: 60,
       showScoreboardAfterQuestion: showScoreboardAfterQuestion
     };
-    const insertIndex = activeIdx >= 0 && activeIdx < questions.length ? activeIdx + 1 : questions.length;
+    const endScreenIndex = questions.findIndex((q) => q.type === 'end');
+    const maxInsertIndex = endScreenIndex !== -1 ? endScreenIndex : questions.length;
+    const insertIndex = activeIdx >= 0 && activeIdx < maxInsertIndex ? activeIdx + 1 : maxInsertIndex;
     const updated = [...questions];
     updated.splice(insertIndex, 0, newQuestion);
     setQuestions(updated);
@@ -308,7 +342,7 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
     showNotification(`New Question added after slide #${activeIdx + 1}!`);
   };
 
-  // Add new free-input question slide (inserted after the currently selected slide)
+  // Add new free-input question slide (inserted after currently selected slide, before the end screen)
   const handleAddFreeInput = () => {
     const newFreeInput = {
       id: Date.now(),
@@ -321,7 +355,9 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
       timeLimit: 60,
       showScoreboardAfterQuestion: showScoreboardAfterQuestion
     };
-    const insertIndex = activeIdx >= 0 && activeIdx < questions.length ? activeIdx + 1 : questions.length;
+    const endScreenIndex = questions.findIndex((q) => q.type === 'end');
+    const maxInsertIndex = endScreenIndex !== -1 ? endScreenIndex : questions.length;
+    const insertIndex = activeIdx >= 0 && activeIdx < maxInsertIndex ? activeIdx + 1 : maxInsertIndex;
     const updated = [...questions];
     updated.splice(insertIndex, 0, newFreeInput);
     setQuestions(updated);
@@ -331,7 +367,7 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
 
   // Switch active slide question type (between 4-choice Multiple Choice and Free Input)
   const handleSwitchQuestionType = (newType) => {
-    if (!activeQ || activeQ.type === 'splash' || activeQ.type === newType) return;
+    if (!activeQ || activeQ.type === 'splash' || activeQ.type === 'end' || activeQ.type === newType) return;
     const updated = [...questions];
     if (newType === 'free_input') {
       const defaultCorrectText = activeQ.options?.[activeQ.correctIndex] || '';
@@ -356,7 +392,7 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
     setQuestions(updated);
   };
 
-  // Add new splash screen slide (inserted after the currently selected slide)
+  // Add new splash screen slide (inserted after currently selected slide, before the end screen)
   const handleAddSplash = () => {
     const newSplash = {
       id: Date.now(),
@@ -365,7 +401,9 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
       subtitle: 'Get ready for round two! Listen closely to the clues.',
       imageUrl: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?auto=format&fit=crop&w=800&q=80'
     };
-    const insertIndex = activeIdx >= 0 && activeIdx < questions.length ? activeIdx + 1 : questions.length;
+    const endScreenIndex = questions.findIndex((q) => q.type === 'end');
+    const maxInsertIndex = endScreenIndex !== -1 ? endScreenIndex : questions.length;
+    const insertIndex = activeIdx >= 0 && activeIdx < maxInsertIndex ? activeIdx + 1 : maxInsertIndex;
     const updated = [...questions];
     updated.splice(insertIndex, 0, newSplash);
     setQuestions(updated);
@@ -373,10 +411,15 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
     showNotification(`New Splash Screen added after slide #${activeIdx + 1}!`);
   };
 
-  // Delete slide
+  // Delete slide (end screen cannot be deleted)
   const handleDeleteItem = (indexToDelete) => {
-    if (questions.length <= 1) {
-      alert('A quiz must have at least one question or slide.');
+    if (questions[indexToDelete]?.type === 'end') {
+      showNotification('The Final Scoreboard & Podium end screen is permanent and non-removable.');
+      return;
+    }
+    const nonEndQuestions = questions.filter((q) => q.type !== 'end');
+    if (nonEndQuestions.length <= 1) {
+      alert('A quiz must have at least one question or slide before the final podium screen.');
       return;
     }
     const updated = questions.filter((_, idx) => idx !== indexToDelete);
@@ -384,10 +427,17 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
     setActiveIdx(Math.max(0, indexToDelete - 1));
   };
 
-  // Reorder slide: move up (-1) or down (+1)
+  // Reorder slide: move up (-1) or down (+1) (end screen stays pinned at the bottom)
   const handleMoveItem = (index, direction) => {
+    if (questions[index]?.type === 'end') {
+      showNotification('The Final Scoreboard & Podium screen must always remain the final screen.');
+      return;
+    }
     const targetIndex = index + direction;
-    if (targetIndex < 0 || targetIndex >= questions.length) return;
+    const endScreenIndex = questions.findIndex((q) => q.type === 'end');
+    const maxIndex = endScreenIndex !== -1 ? endScreenIndex - 1 : questions.length - 1;
+    if (targetIndex < 0 || targetIndex > maxIndex) return;
+
     const updated = [...questions];
     const [moved] = updated.splice(index, 1);
     updated.splice(targetIndex, 0, moved);
@@ -507,6 +557,20 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
           : showScoreboardAfterQuestion;
 
         const validated = loadedQuestions.map((q, idx) => {
+          if (q.type === 'end') {
+            return {
+              ...DEFAULT_END_SCREEN,
+              ...q,
+              id: q.id || 'final-end-screen',
+              type: 'end',
+              title: q.title || DEFAULT_END_SCREEN.title,
+              subtitle: q.subtitle || DEFAULT_END_SCREEN.subtitle,
+              showFullLeaderboard: q.showFullLeaderboard !== undefined ? Boolean(q.showFullLeaderboard) : true,
+              enableConfetti: q.enableConfetti !== undefined ? Boolean(q.enableConfetti) : true,
+              isPermanent: true
+            };
+          }
+
           if (q.type === 'splash') {
             return {
               id: q.id || idx + 1,
@@ -548,9 +612,14 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
           };
         });
 
-        setQuestions(validated);
+        // Ensure the non-removable end screen is always placed at the end
+        const nonEndSlides = validated.filter((q) => q.type !== 'end');
+        const existingEnd = validated.find((q) => q.type === 'end') || DEFAULT_END_SCREEN;
+        const finalSlides = [...nonEndSlides, existingEnd];
+
+        setQuestions(finalSlides);
         setActiveIdx(0);
-        showNotification(`Successfully loaded ${validated.length} slides from JSON!`);
+        showNotification(`Successfully loaded ${finalSlides.length} slides from JSON!`);
       } catch (err) {
         console.error('Failed to parse quiz JSON:', err);
         alert('Could not parse JSON file. Please ensure it is valid JSON.');
@@ -571,7 +640,7 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
     }
   };
 
-  const questionCount = questions.filter(q => q.type !== 'splash').length;
+  const questionCount = questions.filter(q => q.type !== 'splash' && q.type !== 'end').length;
   const freeInputCount = questions.filter(q => q.type === 'free_input').length;
   const splashCount = questions.filter(q => q.type === 'splash').length;
 
@@ -743,6 +812,7 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
               {questions.map((item, idx) => {
                 const isSplash = item.type === 'splash';
                 const isFreeInput = item.type === 'free_input';
+                const isEnd = item.type === 'end';
                 const isSelected = activeIdx === idx;
 
                 return (
@@ -751,11 +821,15 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
                     onClick={() => setActiveIdx(idx)}
                     className={`group flex items-center justify-between p-2.5 rounded-xl cursor-pointer text-xs transition-all border ${
                       isSelected
-                        ? isSplash
+                        ? isEnd
+                          ? 'bg-gradient-to-r from-amber-950/80 via-yellow-950/80 to-purple-950/80 border-amber-400 text-amber-200 font-bold shadow-lg shadow-amber-500/20'
+                          : isSplash
                           ? 'bg-amber-950/70 border-amber-500 text-amber-100 shadow-lg shadow-amber-500/20'
                           : isFreeInput
                           ? 'bg-gradient-to-r from-cyan-900/80 to-purple-900/80 border-cyan-400 text-white font-bold shadow-md shadow-cyan-600/25'
                           : 'bg-purple-600 border-purple-400 text-white font-bold shadow-md shadow-purple-600/25'
+                        : isEnd
+                        ? 'bg-amber-950/20 border-amber-800/40 text-amber-200 hover:border-amber-700/60'
                         : isSplash
                         ? 'bg-amber-950/20 border-amber-800/40 text-amber-200 hover:border-amber-700/60'
                         : isFreeInput
@@ -764,7 +838,13 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
                     }`}
                   >
                     <div className="truncate flex-1 pr-2 flex items-center gap-1.5">
-                      {isSplash ? (
+                      {isEnd ? (
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <span className="px-1.5 py-0.5 rounded bg-gradient-to-r from-amber-500 to-yellow-400 text-slate-950 font-black text-[9px] uppercase tracking-wider flex items-center gap-1">
+                            <TrophyIcon className="w-2.5 h-2.5" /> FINALE
+                          </span>
+                        </div>
+                      ) : isSplash ? (
                         <div className="flex items-center gap-1.5 shrink-0">
                           <span className="px-1.5 py-0.5 rounded bg-amber-500 text-slate-950 font-black text-[9px] uppercase tracking-wider">
                             SPLASH
@@ -786,68 +866,74 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
                       )}
 
                       <span className="truncate font-semibold">
-                        {isSplash ? (item.title || 'Now the Music Round!') : (item.question || 'Untitled Question')}
+                        {isEnd ? (item.title || "Final Scoreboard & Podium") : isSplash ? (item.title || 'Now the Music Round!') : (item.question || 'Untitled Question')}
                       </span>
                     </div>
 
                     <div className="flex items-center gap-1 shrink-0">
-                      {!isSplash && (
+                      {isEnd ? (
+                        <span className="text-[9px] px-1.5 py-0.5 rounded bg-slate-900/90 border border-amber-600/50 text-amber-300 font-bold" title="Non-removable default end screen">
+                          Permanent
+                        </span>
+                      ) : (
                         <>
-                          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-900/80 border border-slate-700/60 text-amber-300">
-                            {item.points !== undefined && item.points !== '' ? item.points : 1} {Number(item.points ?? 1) === 1 ? 'pt' : 'pts'}
-                          </span>
-                          {item.showScoreboardAfterQuestion === false && (
-                            <span
-                              title="Scoreboard off: Ending goes directly to next question"
-                              className="text-[9px] px-1 py-0.5 rounded bg-slate-900/90 border border-purple-800 text-purple-300 font-bold"
-                            >
-                              direct
-                            </span>
+                          {!isSplash && (
+                            <>
+                              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-900/80 border border-slate-700/60 text-amber-300">
+                                {item.points !== undefined && item.points !== '' ? item.points : 1} {Number(item.points ?? 1) === 1 ? 'pt' : 'pts'}
+                              </span>
+                              {item.showScoreboardAfterQuestion === false && (
+                                <span
+                                  title="Scoreboard off: Ending goes directly to next question"
+                                  className="text-[9px] px-1 py-0.5 rounded bg-slate-900/90 border border-purple-800 text-purple-300 font-bold"
+                                >
+                                  direct
+                                </span>
+                              )}
+                            </>
                           )}
+
+                          {/* Reorder Up/Down buttons */}
+                          <div className="opacity-0 group-hover:opacity-100 flex items-center transition-opacity">
+                            <button
+                              type="button"
+                              disabled={idx === 0}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleMoveItem(idx, -1);
+                              }}
+                              className={`p-0.5 rounded hover:bg-slate-800 ${idx === 0 ? 'text-slate-600 cursor-not-allowed' : 'text-slate-300 hover:text-white cursor-pointer'}`}
+                              title="Move Up"
+                            >
+                              <ChevronUpIcon />
+                            </button>
+                            <button
+                              type="button"
+                              disabled={idx >= questions.length - 2}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleMoveItem(idx, 1);
+                              }}
+                              className={`p-0.5 rounded hover:bg-slate-800 ${idx >= questions.length - 2 ? 'text-slate-600 cursor-not-allowed' : 'text-slate-300 hover:text-white cursor-pointer'}`}
+                              title="Move Down"
+                            >
+                              <ChevronDownIcon />
+                            </button>
+                          </div>
+
+                          {/* Delete */}
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteItem(idx);
+                            }}
+                            className="opacity-0 group-hover:opacity-100 hover:text-rose-400 p-1 cursor-pointer transition-opacity text-slate-400"
+                            title="Delete Slide"
+                          >
+                            <TrashIcon className="w-3.5 h-3.5" />
+                          </button>
                         </>
-                      )}
-
-                      {/* Reorder Up/Down buttons */}
-                      <div className="opacity-0 group-hover:opacity-100 flex items-center transition-opacity">
-                        <button
-                          type="button"
-                          disabled={idx === 0}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleMoveItem(idx, -1);
-                          }}
-                          className={`p-0.5 rounded hover:bg-slate-800 ${idx === 0 ? 'text-slate-600 cursor-not-allowed' : 'text-slate-300 hover:text-white cursor-pointer'}`}
-                          title="Move Up"
-                        >
-                          <ChevronUpIcon />
-                        </button>
-                        <button
-                          type="button"
-                          disabled={idx === questions.length - 1}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleMoveItem(idx, 1);
-                          }}
-                          className={`p-0.5 rounded hover:bg-slate-800 ${idx === questions.length - 1 ? 'text-slate-600 cursor-not-allowed' : 'text-slate-300 hover:text-white cursor-pointer'}`}
-                          title="Move Down"
-                        >
-                          <ChevronDownIcon />
-                        </button>
-                      </div>
-
-                      {/* Delete */}
-                      {questions.length > 1 && (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleDeleteItem(idx);
-                          }}
-                          className="opacity-0 group-hover:opacity-100 hover:text-rose-400 p-1 cursor-pointer transition-opacity text-slate-400"
-                          title="Delete Slide"
-                        >
-                          <TrashIcon className="w-3.5 h-3.5" />
-                        </button>
                       )}
                     </div>
                   </div>
@@ -894,9 +980,161 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
         <main className="flex-1 overflow-y-auto p-6 sm:p-10 max-w-4xl mx-auto w-full space-y-6">
           
           {/* ======================================================== */}
-          {/* SPLASH SCREEN EDITOR */}
+          {/* END-SCREEN / FINAL PODIUM & SCOREBOARD EDITOR */}
           {/* ======================================================== */}
-          {activeQ.type === 'splash' ? (
+          {activeQ.type === 'end' ? (
+            <div className="space-y-6">
+              {/* Header card */}
+              <div className="bg-gradient-to-br from-amber-950/40 via-slate-900 to-purple-950/40 border-2 border-amber-500/50 rounded-3xl p-6 sm:p-8 shadow-2xl space-y-6">
+                <div className="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-slate-800">
+                  <div className="flex items-center gap-2.5">
+                    <span className="px-3 py-1 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-400 text-slate-950 font-black text-xs uppercase tracking-wider flex items-center gap-1.5 shadow-md shadow-amber-500/20">
+                      <TrophyIcon className="w-4 h-4" /> Final Screen
+                    </span>
+                    <span className="text-sm font-black text-transparent bg-clip-text bg-gradient-to-r from-amber-300 to-yellow-200">
+                      Winner Podium & Final Scoreboard
+                    </span>
+                  </div>
+
+                  <span className="px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[11px] font-bold flex items-center gap-1">
+                    <span>🔒 Default & Non-Removable Screen</span>
+                  </span>
+                </div>
+
+                <div className="p-3.5 rounded-2xl bg-slate-950/70 border border-slate-800 text-xs text-slate-300 leading-relaxed flex items-start gap-2.5">
+                  <SparklesIcon className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                  <span>
+                    This screen automatically concludes the quiz. When reached, it triggers the Olympic-style 1st, 2nd, and 3rd place winners' podium with celebratory confetti on big screen displays, and delivers personalized victory cards to each player's device.
+                  </span>
+                </div>
+
+                {/* Podium Title Input */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold uppercase tracking-wider text-amber-300">
+                    Podium Screen Title
+                  </label>
+                  <input
+                    type="text"
+                    value={activeQ.title || ''}
+                    onChange={(e) => handleUpdateActiveQuestion('title', e.target.value)}
+                    placeholder="Final Scoreboard & Winners' Podium"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-lg font-black text-amber-200 outline-none focus:border-amber-400 transition-colors"
+                  />
+                </div>
+
+                {/* Subtitle / Host Closing Remarks */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold uppercase tracking-wider text-slate-300">
+                    Host Closing Remarks / Subtitle
+                  </label>
+                  <textarea
+                    rows={2}
+                    value={activeQ.subtitle || ''}
+                    onChange={(e) => handleUpdateActiveQuestion('subtitle', e.target.value)}
+                    placeholder="Congratulations to our champions and thank you for playing!"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-sm text-slate-200 outline-none focus:border-amber-400 transition-colors resize-none"
+                  />
+                </div>
+
+                {/* Screen Features & Configuration */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+                  <div className="flex items-center justify-between p-4 rounded-2xl bg-slate-950/70 border border-slate-800">
+                    <div className="space-y-0.5 pr-2">
+                      <span className="text-xs font-bold text-slate-200 block">Show Complete Rankings</span>
+                      <span className="text-[11px] text-slate-400 block">Display all competitors (#4+) below the podium</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleUpdateActiveQuestion('showFullLeaderboard', activeQ.showFullLeaderboard === false)}
+                      className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                        activeQ.showFullLeaderboard !== false ? 'bg-amber-500' : 'bg-slate-700'
+                      }`}
+                    >
+                      <span
+                        className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
+                          activeQ.showFullLeaderboard !== false ? 'translate-x-5' : 'translate-x-0'
+                        }`}
+                      />
+                    </button>
+                  </div>
+
+                  <div className="flex items-center justify-between p-4 rounded-2xl bg-slate-950/70 border border-slate-800">
+                    <div className="space-y-0.5 pr-2">
+                      <span className="text-xs font-bold text-slate-200 block">Victory Confetti</span>
+                      <span className="text-[11px] text-slate-400 block">Shower celebratory confetti across screen</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleUpdateActiveQuestion('enableConfetti', activeQ.enableConfetti === false)}
+                      className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                        activeQ.enableConfetti !== false ? 'bg-amber-500' : 'bg-slate-700'
+                      }`}
+                    >
+                      <span
+                        className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
+                          activeQ.enableConfetti !== false ? 'translate-x-5' : 'translate-x-0'
+                        }`}
+                      />
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Live Interactive Podium Preview Stage */}
+              <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-xl space-y-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
+                    <AwardIcon className="w-4 h-4 text-amber-400" />
+                    Live Podium Visual Preview
+                  </span>
+                  <span className="text-[11px] text-amber-400 font-semibold">
+                    (Olympic 3D Stage)
+                  </span>
+                </div>
+
+                <div className="bg-slate-950 border border-slate-800/80 rounded-2xl p-6 flex flex-col items-center justify-center relative overflow-hidden">
+                  <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-72 h-72 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
+
+                  {/* Podium pedestals */}
+                  <div className="flex items-end justify-center gap-3 sm:gap-6 w-full max-w-md pt-8 pb-4 relative z-10">
+                    {/* 2nd Place Silver */}
+                    <div className="flex flex-col items-center flex-1">
+                      <span className="text-2xl mb-1">🥈</span>
+                      <span className="text-xs font-bold text-slate-200">2nd Place</span>
+                      <span className="text-[10px] font-mono text-slate-400 font-semibold mb-1">Silver Medal</span>
+                      <div className="w-full h-24 sm:h-28 rounded-t-xl bg-gradient-to-t from-slate-800 to-slate-700 border-t-2 border-slate-400 flex items-center justify-center shadow-lg">
+                        <span className="text-3xl font-black text-slate-400">2</span>
+                      </div>
+                    </div>
+
+                    {/* 1st Place Gold */}
+                    <div className="flex flex-col items-center flex-1">
+                      <span className="text-3xl mb-1 animate-bounce">👑</span>
+                      <span className="text-sm font-black text-amber-300">1st Champion</span>
+                      <span className="text-xs font-mono text-amber-400 font-bold mb-1">Gold Trophy</span>
+                      <div className="w-full h-32 sm:h-40 rounded-t-xl bg-gradient-to-t from-amber-700 via-amber-600 to-yellow-500 border-t-4 border-yellow-300 flex items-center justify-center shadow-2xl shadow-amber-500/30">
+                        <span className="text-4xl font-black text-slate-950">1</span>
+                      </div>
+                    </div>
+
+                    {/* 3rd Place Bronze */}
+                    <div className="flex flex-col items-center flex-1">
+                      <span className="text-2xl mb-1">🥉</span>
+                      <span className="text-xs font-bold text-amber-200">3rd Place</span>
+                      <span className="text-[10px] font-mono text-amber-300/80 font-semibold mb-1">Bronze Medal</span>
+                      <div className="w-full h-18 sm:h-20 rounded-t-xl bg-gradient-to-t from-amber-900 to-amber-800 border-t-2 border-amber-600 flex items-center justify-center shadow-md">
+                        <span className="text-2xl font-black text-amber-600">3</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <span className="text-[11px] text-slate-500 font-medium pt-2">
+                    Automatically ranks real scores, correct answer counts, and player times
+                  </span>
+                </div>
+              </div>
+            </div>
+          ) : activeQ.type === 'splash' ? (
             <div className="space-y-6">
               {/* Header card */}
               <div className="bg-slate-900 border border-amber-500/40 rounded-3xl p-6 shadow-xl space-y-5">

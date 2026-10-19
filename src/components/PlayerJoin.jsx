@@ -339,8 +339,8 @@ export default function PlayerJoin({ initialRoomCode = '' }) {
   const lastAnswerObj = myPlayerObj?.answers?.[currentQIndex];
 
   const allSlides = roomData?.questions || [];
-  const totalQuestions = allSlides.filter((q) => q.type !== 'splash').length;
-  const questionsPassed = allSlides.slice(0, currentQIndex + 1).filter((q) => q.type !== 'splash').length;
+  const totalQuestions = allSlides.filter((q) => q.type !== 'splash' && q.type !== 'end').length;
+  const questionsPassed = allSlides.slice(0, currentQIndex + 1).filter((q) => q.type !== 'splash' && q.type !== 'end').length;
 
   // Compute rankings
   const rawPlayers = roomData?.players || {};
@@ -714,20 +714,60 @@ export default function PlayerJoin({ initialRoomCode = '' }) {
 
         {/* 5. FINISHED / FINAL WINNER PODIUM */}
         {status === 'finished' && (
-          <main className="my-auto text-center flex flex-col items-center">
-            <div className="p-8 rounded-3xl bg-gradient-to-b from-purple-950/40 to-slate-900 border-2 border-purple-500/40 max-w-sm w-full shadow-2xl">
-              <span className="text-4xl block mb-2">
+          <main className="my-auto text-center flex flex-col items-center w-full max-w-sm mx-auto space-y-4">
+            <div className="p-6 sm:p-8 rounded-3xl bg-gradient-to-b from-purple-950/40 via-slate-900 to-slate-950 border-2 border-purple-500/40 w-full shadow-2xl space-y-4">
+              <span className="text-5xl block animate-bounce">
                 {myRank === 1 ? '👑' : myRank === 2 ? '🥈' : myRank === 3 ? '🥉' : '🎉'}
               </span>
-              <h2 className="text-2xl font-black text-white mb-1">
-                {myRank === 1 ? 'CHAMPION!' : `Finished #${myRank}!`}
-              </h2>
-              <p className="text-xs text-slate-300 mb-6">
-                {myRank <= 3 ? 'You made it onto the final podium!' : 'Great game! Thanks for playing!'}
-              </p>
+              <div>
+                <h2 className="text-2xl font-black text-white">
+                  {myRank === 1 ? 'CHAMPION!' : myRank <= 3 ? `${myRank === 2 ? '2nd' : '3rd'} Place Podium!` : `Finished #${myRank} of ${sortedPlayers.length}!`}
+                </h2>
+                <p className="text-xs text-slate-300 mt-1">
+                  {myRank === 1
+                    ? 'Congratulations! You won the quiz!'
+                    : myRank <= 3
+                    ? 'Outstanding! You made it onto the winners podium!'
+                    : 'Great game! Thanks for competing!'}
+                </p>
+              </div>
+
               <div className="px-6 py-4 rounded-2xl bg-slate-950 border border-slate-800 text-center">
-                <span className="text-xs text-slate-500 uppercase font-bold">Final Score</span>
-                <p className="text-3xl font-black text-amber-400 mt-1">{myPlayerObj?.score || 0} pts</p>
+                <span className="text-[11px] text-slate-500 uppercase font-bold tracking-wider">Your Final Score</span>
+                <p className="text-3xl font-black text-amber-400 mt-0.5">{myPlayerObj?.score || 0} pts</p>
+              </div>
+            </div>
+
+            {/* Complete Final Leaderboard */}
+            <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 w-full shadow-xl space-y-2">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block text-left flex items-center gap-1.5">
+                <TrophyIcon className="w-3.5 h-3.5 text-amber-400" />
+                Final Standings ({sortedPlayers.length} Players)
+              </span>
+              <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                {sortedPlayers.map((p, idx) => {
+                  const isMe = p.id === currentPlayerId;
+                  return (
+                    <div
+                      key={p.id}
+                      className={`flex items-center justify-between p-2 rounded-xl border text-xs ${
+                        isMe
+                          ? 'bg-purple-950/60 border-purple-500 text-purple-200 font-bold'
+                          : idx === 0
+                          ? 'bg-amber-950/30 border-amber-500/40 text-amber-200'
+                          : 'bg-slate-950 border-slate-800/80 text-slate-300'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 truncate">
+                        <span className="font-mono text-slate-500 w-5 text-right font-bold">
+                          {idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `#${idx + 1}`}
+                        </span>
+                        <span className="truncate">{p.name} {isMe && '(You)'}</span>
+                      </div>
+                      <span className="font-mono font-bold text-amber-300 ml-2 shrink-0">{p.score} pts</span>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           </main>

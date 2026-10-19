@@ -336,8 +336,8 @@ export default function LiveDisplay({ roomCode: initialRoomCode = '' }) {
   });
 
   const allSlides = roomData?.questions || [];
-  const totalQuestions = allSlides.filter(q => q.type !== 'splash').length;
-  const questionsPassed = allSlides.slice(0, currentQIndex + 1).filter(q => q.type !== 'splash').length;
+  const totalQuestions = allSlides.filter(q => q.type !== 'splash' && q.type !== 'end').length;
+  const questionsPassed = allSlides.slice(0, currentQIndex + 1).filter(q => q.type !== 'splash' && q.type !== 'end').length;
 
   // ----------------------------------------------------
   // 1. LOBBY VIEW
@@ -779,25 +779,50 @@ export default function LiveDisplay({ roomCode: initialRoomCode = '' }) {
   // 4. FINISHED / OLYMPIC PODIUM VIEW
   // ----------------------------------------------------
   if (roomData.status === 'finished') {
+    const endScreenItem = allSlides.find((q) => q.type === 'end') || {};
+    const podiumTitle = endScreenItem.title || "Final Winner Podium!";
+    const podiumSubtitle = endScreenItem.subtitle || "Quiz Completed";
+    const showFullLeaderboard = endScreenItem.showFullLeaderboard !== false;
+    const enableConfetti = endScreenItem.enableConfetti !== false;
+
     const rankedPlayers = [...players].sort((a, b) => b.score - a.score);
     const first = rankedPlayers[0];
     const second = rankedPlayers[1];
     const third = rankedPlayers[2];
-    const runnersUp = rankedPlayers.slice(3, 8);
+    const allRunnersUp = rankedPlayers.slice(3);
 
     return (
       <div className="min-h-screen bg-slate-950 text-white flex flex-col justify-between p-6 sm:p-10 font-sans relative overflow-hidden">
         {/* Celebration Ambient Glow */}
         <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-purple-600/20 rounded-full blur-3xl pointer-events-none" />
 
+        {/* Victory Confetti Shower */}
+        {enableConfetti && (
+          <div className="absolute inset-0 pointer-events-none overflow-hidden z-20">
+            {Array.from({ length: 45 }).map((_, i) => (
+              <div
+                key={i}
+                className="absolute w-2.5 h-2.5 rounded-sm animate-pulse opacity-85"
+                style={{
+                  top: `${(i * 7) % 95}%`,
+                  left: `${(i * 13) % 98}%`,
+                  backgroundColor: ['#f59e0b', '#ec4899', '#8b5cf6', '#10b981', '#3b82f6', '#ef4444', '#eab308'][i % 7],
+                  transform: `rotate(${i * 35}deg) scale(${0.8 + (i % 4) * 0.25})`,
+                  animationDuration: `${1.2 + (i % 4) * 0.6}s`
+                }}
+              />
+            ))}
+          </div>
+        )}
+
         <header className="flex items-center justify-between border-b border-slate-800 pb-4 relative z-10">
           <div className="flex items-center gap-3">
             <TrophyIcon className="w-8 h-8 text-amber-400" />
             <div>
               <h1 className="text-2xl sm:text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-amber-300 via-yellow-400 to-amber-500">
-                Final Winner Podium!
+                {podiumTitle}
               </h1>
-              <p className="text-xs text-slate-400">Quiz Completed</p>
+              <p className="text-xs text-slate-300 font-medium">{podiumSubtitle}</p>
             </div>
           </div>
           <button
@@ -856,18 +881,20 @@ export default function LiveDisplay({ roomCode: initialRoomCode = '' }) {
             )}
           </div>
 
-          {/* Runners-up List */}
-          {runnersUp.length > 0 && (
-            <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 max-w-lg mx-auto">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block text-center mb-2">
-                Honorable Mentions
+          {/* Full Final Scoreboard & Rankings */}
+          {showFullLeaderboard && allRunnersUp.length > 0 && (
+            <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 max-w-2xl mx-auto shadow-xl">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block text-center mb-3">
+                Final Leaderboard Standings
               </span>
-              <div className="flex flex-wrap justify-center gap-3">
-                {runnersUp.map((p, idx) => (
-                  <div key={p.id} className="px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 text-xs flex items-center gap-2">
-                    <span className="text-slate-500 font-mono">#{idx + 4}</span>
-                    <span className="font-bold text-slate-200">{p.name}</span>
-                    <span className="text-purple-400 font-mono font-semibold">{p.score} pts</span>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-56 overflow-y-auto pr-1">
+                {allRunnersUp.map((p, idx) => (
+                  <div key={p.id} className="px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-800/80 text-xs flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="text-slate-500 font-mono font-bold">#{idx + 4}</span>
+                      <span className="font-bold text-slate-200 truncate max-w-[140px]">{p.name}</span>
+                    </div>
+                    <span className="text-purple-400 font-mono font-black">{p.score} pts</span>
                   </div>
                 ))}
               </div>
