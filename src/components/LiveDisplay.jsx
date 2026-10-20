@@ -1,8 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { ref, onValue, get } from 'firebase/database';
 import { db } from '../firebase.js';
+import WorldMap from './WorldMap.jsx';
+import { findClosestPlayers, calculateFocusBounds } from '../utils/geoDistance.js';
 
 // Clean inline SVGs (zero external dependencies)
+const MapPinIcon = ({ className = 'w-5 h-5' }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z" />
+    <circle cx="12" cy="10" r="3" />
+  </svg>
+);
+
 const UsersIcon = ({ className = 'w-5 h-5' }) => (
   <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
@@ -335,6 +344,30 @@ export default function LiveDisplay({ roomCode: initialRoomCode = '' }) {
     }
   });
 
+  // Closest-wins map calculations
+  const isClosestPin = currentQuestion?.type === 'closest_pin';
+  const targetLat = currentQuestion?.lat !== undefined ? Number(currentQuestion.lat) : 48.8584;
+  const targetLng = currentQuestion?.lng !== undefined ? Number(currentQuestion.lng) : 2.2945;
+  const unit = currentQuestion?.unit || 'km';
+
+  const mapPlayersList = players.map((p) => {
+    const ans = p.answers?.[currentQIndex];
+    return {
+      id: p.id,
+      name: p.name,
+      lat: ans?.lat !== undefined ? Number(ans.lat) : undefined,
+      lng: ans?.lng !== undefined ? Number(ans.lng) : undefined,
+      guessLat: ans?.lat,
+      guessLng: ans?.lng,
+      color: '#38bdf8'
+    };
+  });
+
+  const rankedMapPlayers = findClosestPlayers(targetLat, targetLng, mapPlayersList, unit);
+  const focusBounds = calculateFocusBounds(targetLat, targetLng, rankedMapPlayers);
+  const winnerPlayer = rankedMapPlayers.find((p) => p.isWinner);
+  const revealStage = roomData?.revealStage || 1;
+
   const allSlides = roomData?.questions || [];
   const totalQuestions = allSlides.filter(q => q.type !== 'splash' && q.type !== 'end').length;
   const questionsPassed = allSlides.slice(0, currentQIndex + 1).filter(q => q.type !== 'splash' && q.type !== 'end').length;
@@ -507,8 +540,9 @@ export default function LiveDisplay({ roomCode: initialRoomCode = '' }) {
         <header className="flex items-center justify-between border-b border-slate-800 pb-4">
           <div className="flex items-center gap-3">
             <span className="px-3.5 py-1.5 rounded-xl bg-purple-900/60 border border-purple-700 text-purple-200 text-sm font-bold flex items-center gap-1.5">
+              {isClosestPin && <MapPinIcon className="w-4 h-4 text-emerald-400" />}
               {isFreeInput && <KeyboardIcon className="w-4 h-4 text-cyan-400" />}
-              <span>{isFreeInput ? 'Free-Text Question' : 'Question'} {questionsPassed} of {totalQuestions}</span>
+              <span>{isClosestPin ? 'Closest-Wins Question' : isFreeInput ? 'Free-Text Question' : 'Question'} {questionsPassed} of {totalQuestions}</span>
             </span>
             <span className="px-3 py-1.5 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-300 text-xs font-mono font-bold">
               {currentQuestion?.points !== undefined && currentQuestion.points !== '' ? currentQuestion.points : 1} {Number(currentQuestion?.points ?? 1) === 1 ? 'pt' : 'pts'}
@@ -550,8 +584,174 @@ export default function LiveDisplay({ roomCode: initialRoomCode = '' }) {
             </h2>
           </div>
 
-          {/* Conditional Rendering: Free-Text vs Multiple-Choice Options */}
-          {isFreeInput ? (
+          {/* Conditional Rendering: Closest Wins vs Free-Text vs Multiple-Choice */}
+          {isClosestPin ? (
+            !isReveal ? (
+              /* Active Closest-Wins Question View */
+              <div className="w-full bg-slate-900/90 border-2 border-emerald-500/40 rounded-3xl p-6 sm:p-10 text-center shadow-2xl relative overflow-hidden flex flex-col items-center">
+                {currentQuestion?.imageUrl ? (
+                  <div className="relative max-w-2xl w-full rounded-2xl overflow-hidden border-2 border-emerald-500/50 shadow-2xl shadow-emerald-950/60 mb-6 bg-slate-950">
+                    <img
+                      src={currentQuestion.imageUrl}
+                      alt="Mystery Landmark"
+                      className="w-full max-h-[380px] sm:max-h-[440px] object-cover object-center"
+                    />
+                    <div className="absolute top-3 left-3 px-3 py-1.5 rounded-full bg-slate-950/80 backdrop-blur-md border border-emerald-500/40 text-emerald-300 text-xs font-black uppercase tracking-wider flex items-center gap-1.5 shadow">
+                      <MapPinIcon className="w-3.5 h-3.5 text-emerald-400" />
+                      Mystery Location Photo
+                    </div>
+                    <div className="absolute bottom-3 right-3 px-3 py-1 rounded-full bg-slate-950/85 backdrop-blur-md border border-slate-700 text-slate-300 text-xs font-mono font-bold">
+                      Closest Pin Wins • Measured in {currentQuestion?.unit || 'km'}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="w-20 h-20 rounded-3xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 mb-6">
+                    <MapPinIcon className="w-10 h-10 animate-bounce" />
+                  </div>
+                )}
+
+                <h3 className="text-2xl sm:text-3xl font-black text-white mb-2">
+                  Where in the world was this photo taken?
+                </h3>
+                <p className="text-sm text-emerald-300/90 font-medium max-w-xl mx-auto mb-6">
+                  Look at this screen, then explore the borderless map on your phone to pan, zoom, and lock in your pin!
+                </p>
+
+                <div className="inline-flex items-center gap-3 px-6 py-3 rounded-2xl bg-slate-950 border border-slate-800 shadow-lg">
+                  <span className="w-3 h-3 rounded-full bg-emerald-400 animate-ping" />
+                  <span className="text-sm font-bold text-slate-200">
+                    {totalAnswersSubmitted} of {players.length} players have placed their pin
+                  </span>
+                </div>
+              </div>
+            ) : (
+              /* Revealed Closest-Wins 4-Stage World Map View */
+              <div className="w-full space-y-6">
+                {/* 4-Stage Stepper Bar */}
+                <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-3 flex flex-wrap items-center justify-between gap-2 shadow-xl">
+                  <div className="flex items-center gap-2">
+                    <span className="px-3 py-1 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-xs font-black uppercase tracking-wider flex items-center gap-1.5">
+                      <MapPinIcon className="w-3.5 h-3.5" /> Stage {revealStage} of 4
+                    </span>
+                    <span className="text-sm font-bold text-white">
+                      {revealStage === 1 && '1. The World Map'}
+                      {revealStage === 2 && `2. Player Guesses (${rankedMapPlayers.filter((p) => p.hasGuessed).length} Pins)`}
+                      {revealStage === 3 && `3. Actual Location: ${currentQuestion?.landmarkName || 'Landmark'}!`}
+                      {revealStage >= 4 && `4. Closest Winners Zoom!`}
+                    </span>
+                  </div>
+
+                  {/* Stage Progress Pills */}
+                  <div className="flex items-center gap-1.5 text-xs font-bold">
+                    <span className={`px-2.5 py-1 rounded-lg transition-all ${revealStage >= 1 ? 'bg-emerald-600 text-white shadow' : 'bg-slate-800 text-slate-500'}`}>
+                      1. Map
+                    </span>
+                    <span className="text-slate-600">→</span>
+                    <span className={`px-2.5 py-1 rounded-lg transition-all ${revealStage >= 2 ? 'bg-emerald-600 text-white shadow' : 'bg-slate-800 text-slate-500'}`}>
+                      2. Guesses
+                    </span>
+                    <span className="text-slate-600">→</span>
+                    <span className={`px-2.5 py-1 rounded-lg transition-all ${revealStage >= 3 ? 'bg-emerald-600 text-white shadow' : 'bg-slate-800 text-slate-500'}`}>
+                      3. Star Location
+                    </span>
+                    <span className="text-slate-600">→</span>
+                    <span className={`px-2.5 py-1 rounded-lg transition-all ${revealStage >= 4 ? 'bg-amber-500 text-slate-950 font-black shadow-lg shadow-amber-500/30' : 'bg-slate-800 text-slate-500'}`}>
+                      4. Winner Zoom
+                    </span>
+                  </div>
+                </div>
+
+                {/* Full Stage World Map */}
+                <div className="w-full h-[460px] sm:h-[540px] rounded-3xl overflow-hidden border-2 border-emerald-500/30 shadow-2xl relative">
+                  <WorldMap
+                    targetPin={{
+                      lat: targetLat,
+                      lng: targetLng,
+                      label: `${currentQuestion?.landmarkName || 'Target'}${currentQuestion?.locationName ? ` (${currentQuestion.locationName})` : ''}`
+                    }}
+                    playerPins={rankedMapPlayers}
+                    showTarget={revealStage >= 3}
+                    showPlayerPins={revealStage >= 2}
+                    showDistanceLines={revealStage >= 3}
+                    focusBounds={revealStage >= 4 ? focusBounds : null}
+                    className="w-full h-full"
+                  />
+                </div>
+
+                {/* Stage 4 Winner Celebratory Podium Card */}
+                {revealStage >= 4 && (
+                  <div className="bg-gradient-to-br from-amber-950/40 via-slate-900 to-purple-950/40 border-2 border-amber-500/60 rounded-3xl p-6 sm:p-8 shadow-2xl space-y-5 animate-in fade-in zoom-in-95 duration-500">
+                    <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-slate-800">
+                      <div>
+                        <span className="px-3 py-1 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300 text-xs font-black uppercase tracking-wider flex items-center gap-1.5 w-fit mb-2">
+                          <TrophyIcon className="w-4 h-4 text-amber-400" /> Closest Guess Winner
+                        </span>
+                        <h3 className="text-3xl sm:text-4xl font-black text-white">
+                          {winnerPlayer ? `👑 ${winnerPlayer.name}` : 'No Guesses Placed'}
+                        </h3>
+                        {winnerPlayer && (
+                          <p className="text-sm font-semibold text-amber-300 mt-1">
+                            Only <span className="font-mono font-black text-amber-200 text-base">{winnerPlayer.distanceFormatted}</span> away from {currentQuestion?.landmarkName || 'the target'}!
+                          </p>
+                        )}
+                      </div>
+
+                      {/* Landmark Mini Thumbnail */}
+                      {currentQuestion?.imageUrl && (
+                        <div className="flex items-center gap-3 bg-slate-950/80 p-2 rounded-2xl border border-slate-800">
+                          <img
+                            src={currentQuestion.imageUrl}
+                            alt={currentQuestion.landmarkName || 'Landmark'}
+                            className="w-20 h-20 rounded-xl object-cover object-center"
+                          />
+                          <div className="pr-3 text-left">
+                            <p className="text-xs font-bold text-white">{currentQuestion.landmarkName || 'Target Location'}</p>
+                            <p className="text-[11px] text-slate-400">{currentQuestion.locationName || ''}</p>
+                            <p className="text-[10px] font-mono text-emerald-400 mt-1">
+                              {targetLat.toFixed(2)}°, {targetLng.toFixed(2)}°
+                            </p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Ranked Players Leaderboard Table */}
+                    {rankedMapPlayers.filter((p) => p.hasGuessed).length > 0 && (
+                      <div className="space-y-2">
+                        <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                          Closest Guesses Ranking:
+                        </span>
+                        <div className="flex flex-wrap gap-2.5">
+                          {rankedMapPlayers.filter((p) => p.hasGuessed).slice(0, 6).map((player, idx) => (
+                            <div
+                              key={player.id}
+                              className={`px-4 py-2 rounded-xl text-xs flex items-center gap-2 border font-bold shadow ${
+                                player.isWinner
+                                  ? 'bg-amber-500/20 border-amber-500/60 text-amber-200 ring-2 ring-amber-400/30'
+                                  : 'bg-slate-950 border-slate-800 text-slate-300'
+                              }`}
+                            >
+                              <span className="font-mono text-slate-500">#{idx + 1}</span>
+                              <span className="font-bold">{player.isWinner ? `👑 ${player.name}` : player.name}</span>
+                              <span className="font-mono text-amber-300">({player.distanceFormatted})</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Secret Note / Host Trivia Explanation */}
+                    {currentQuestion?.secretNote && (
+                      <div className="p-3.5 rounded-2xl bg-slate-950/70 border border-slate-800 text-xs text-slate-300 leading-relaxed flex items-start gap-2.5">
+                        <SparklesIcon className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                        <span><strong className="text-white">Did you know?</strong> {currentQuestion.secretNote}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )
+          ) : isFreeInput ? (
             !isReveal ? (
               /* Active Free-Text Question Stage */
               <div className="w-full bg-gradient-to-b from-slate-900 via-cyan-950/20 to-slate-900 border-2 border-cyan-500/40 rounded-3xl p-8 sm:p-12 text-center shadow-2xl relative overflow-hidden">

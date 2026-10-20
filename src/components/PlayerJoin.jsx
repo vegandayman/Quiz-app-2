@@ -2,8 +2,16 @@ import React, { useState, useEffect } from 'react';
 import { ref, get, set, push, onValue, update } from 'firebase/database';
 import { db } from '../firebase.js';
 import { checkFreeInputAnswer } from '../utils/answerMatcher.js';
+import WorldMap from './WorldMap.jsx';
 
 // Clean inline SVGs (zero external dependencies)
+const MapPinIcon = ({ className = 'w-6 h-6' }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z" />
+    <circle cx="12" cy="10" r="3" />
+  </svg>
+);
+
 const KeyboardIcon = ({ className = 'w-6 h-6' }) => (
   <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <rect width="20" height="16" x="2" y="4" rx="2" />
@@ -113,6 +121,8 @@ export default function PlayerJoin({ initialRoomCode = '' }) {
   const [myAnswer, setMyAnswer] = useState(null);
   const [playerTextInput, setPlayerTextInput] = useState('');
   const [isSubmittingText, setIsSubmittingText] = useState(false);
+  const [selectedPin, setSelectedPin] = useState(null); // { lat, lng }
+  const [isSubmittingPin, setIsSubmittingPin] = useState(false);
   const [timeLeft, setTimeLeft] = useState(20);
 
   // Sync if prop changes externally
@@ -224,9 +234,22 @@ export default function PlayerJoin({ initialRoomCode = '' }) {
       const qIndex = data.currentQuestionIndex || 0;
       const myAnswers = data.players?.[currentPlayerId]?.answers;
       if (myAnswers && myAnswers[qIndex] !== undefined) {
-        setMyAnswer(myAnswers[qIndex].choiceIndex !== undefined ? myAnswers[qIndex].choiceIndex : (myAnswers[qIndex].textAnswer || true));
+        const curAns = myAnswers[qIndex];
+        setMyAnswer(
+          curAns.choiceIndex !== undefined
+            ? curAns.choiceIndex
+            : curAns.textAnswer !== undefined
+            ? curAns.textAnswer
+            : curAns.lat !== undefined
+            ? { lat: curAns.lat, lng: curAns.lng }
+            : true
+        );
+        if (curAns.lat !== undefined && curAns.lng !== undefined) {
+          setSelectedPin({ lat: Number(curAns.lat), lng: Number(curAns.lng) });
+        }
       } else {
         setMyAnswer(null);
+        setSelectedPin(null);
         setPlayerTextInput('');
       }
     });
@@ -330,6 +353,30 @@ export default function PlayerJoin({ initialRoomCode = '' }) {
     });
 
     setIsSubmittingText(false);
+  };
+
+  // Handle Player Submitting Closest-Wins Pin Guess
+  const handleSubmitPin = async () => {
+    if (!selectedPin || myAnswer !== null || !roomData || timeLeft <= 0 || isSubmittingPin) return;
+
+    setIsSubmittingPin(true);
+    const currentQIndex = roomData.currentQuestionIndex || 0;
+    const startTime = roomData.questionStartTime || Date.now();
+    const timeElapsedSec = Math.max(0, (Date.now() - startTime) / 1000);
+
+    setMyAnswer(selectedPin);
+
+    const playerRef = ref(db, `rooms/${joinedRoomCode}/players/${currentPlayerId}`);
+    await update(playerRef, {
+      [`answers/${currentQIndex}`]: {
+        lat: selectedPin.lat,
+        lng: selectedPin.lng,
+        timeElapsedSec: parseFloat(timeElapsedSec.toFixed(1)),
+        answeredAt: Date.now()
+      }
+    });
+
+    setIsSubmittingPin(false);
   };
 
   const status = roomData?.status || 'lobby';
@@ -468,6 +515,12 @@ export default function PlayerJoin({ initialRoomCode = '' }) {
                 <p className="text-xs font-bold uppercase tracking-wider text-purple-400">
                   Question {currentQIndex + 1}
                 </p>
+                {currentQuestion?.type === 'closest_pin' && (
+                  <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 border border-emerald-500/40 text-[10px] font-mono text-emerald-300 font-bold flex items-center gap-1">
+                    <MapPinIcon className="w-3 h-3 text-emerald-400" />
+                    <span>Closest Pin</span>
+                  </span>
+                )}
                 {currentQuestion?.type === 'free_input' && (
                   <span className="px-1.5 py-0.5 rounded bg-cyan-500/20 border border-cyan-500/40 text-[10px] font-mono text-cyan-300 font-bold flex items-center gap-1">
                     <KeyboardIcon className="w-3 h-3 text-cyan-400" />
@@ -493,8 +546,98 @@ export default function PlayerJoin({ initialRoomCode = '' }) {
               />
             </div>
 
-            {/* Free-Input Question Mode */}
-            {currentQuestion?.type === 'free_input' ? (
+            {/* Closest-Wins Map vs Free-Input vs Multiple Choice */}
+            {currentQuestion?.type === 'closest_pin' ? (
+              myAnswer === null ? (
+                timeLeft > 0 ? (
+                  <div className="w-full space-y-3">
+                    <div className="bg-slate-900/90 border-2 border-emerald-500/40 rounded-3xl p-4 shadow-2xl space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold uppercase tracking-wider text-emerald-300 flex items-center gap-1.5">
+                          <MapPinIcon className="w-4 h-4 text-emerald-400" />
+                          <span>Drop Pin on World Map</span>
+                        </span>
+                        <span className="text-[11px] font-mono text-emerald-400/90">
+                          {selectedPin ? `${selectedPin.lat.toFixed(1)}°, ${selectedPin.lng.toFixed(1)}°` : 'Tap to place'}
+                        </span>
+                      </div>
+
+                      {/* Interactive World Map */}
+                      <div className="w-full h-72 sm:h-80 rounded-2xl overflow-hidden border border-slate-800 shadow-inner">
+                        <WorldMap
+                          interactive={true}
+                          selectedPin={selectedPin}
+                          onPinSelect={(lat, lng) => setSelectedPin({ lat, lng })}
+                          className="w-full h-full"
+                        />
+                      </div>
+
+                      <div className="flex items-center justify-between text-[11px] text-slate-400 px-1">
+                        <span>Pinch to zoom • Drag to pan</span>
+                        <span className="text-emerald-400 font-bold">
+                          {selectedPin ? '✓ Pin ready to submit' : 'Tap anywhere to drop pin'}
+                        </span>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={handleSubmitPin}
+                      disabled={!selectedPin || isSubmittingPin}
+                      className="w-full py-4 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-black text-base sm:text-lg shadow-xl shadow-emerald-600/30 active:scale-98 transition-all cursor-pointer flex items-center justify-center gap-2"
+                    >
+                      {isSubmittingPin ? (
+                        <>
+                          <LoaderIcon className="w-5 h-5 text-white" />
+                          <span>Locking In Pin...</span>
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircleIcon className="w-5 h-5 text-white" />
+                          <span>{selectedPin ? 'Lock In My Pin Location' : 'Tap Map to Place Pin First'}</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="py-12 px-6 rounded-3xl bg-slate-900 border border-slate-800 text-center w-full shadow-2xl">
+                    <div className="w-16 h-16 mx-auto rounded-full bg-rose-500/20 border border-rose-500/40 flex items-center justify-center text-rose-400 mb-4">
+                      <XCircleIcon className="w-8 h-8" />
+                    </div>
+                    <h3 className="text-xl font-black text-white">Time's Up!</h3>
+                    <p className="text-xs text-slate-400 mt-2">
+                      Look up at the live display screen for the closest pin reveal!
+                    </p>
+                  </div>
+                )
+              ) : (
+                /* Submitted Pin Confirmed State */
+                <div className="py-8 px-6 rounded-3xl bg-slate-900 border-2 border-emerald-500/40 text-center w-full shadow-2xl space-y-4">
+                  <div className="w-16 h-16 mx-auto rounded-full bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 mb-2">
+                    <CheckCircleIcon className="w-8 h-8" />
+                  </div>
+                  <h3 className="text-xl font-black text-white">Pin Locked In!</h3>
+                  <p className="text-xs text-slate-300">
+                    Your pin was locked in at <span className="font-mono text-emerald-300 font-bold">{selectedPin ? `${selectedPin.lat.toFixed(2)}°, ${selectedPin.lng.toFixed(2)}°` : 'coords'}</span>
+                  </p>
+
+                  {/* Mini locked map preview */}
+                  {selectedPin && (
+                    <div className="w-full h-40 rounded-xl overflow-hidden border border-slate-800 opacity-90">
+                      <WorldMap
+                        interactive={false}
+                        selectedPin={selectedPin}
+                        className="w-full h-full"
+                      />
+                    </div>
+                  )}
+
+                  <p className="text-xs text-slate-400">
+                    Waiting for other players to finish... look up at the big screen!
+                  </p>
+                </div>
+              )
+            ) : currentQuestion?.type === 'free_input' ? (
               myAnswer === null ? (
                 timeLeft > 0 ? (
                   <form onSubmit={handleSubmitFreeText} className="w-full space-y-4">
@@ -613,7 +756,73 @@ export default function PlayerJoin({ initialRoomCode = '' }) {
 
         {/* 3. REVEAL / SCORE SCREEN */}
         {status === 'reveal' && (() => {
+          const isClosestPin = currentQuestion?.type === 'closest_pin';
           const isFree = currentQuestion?.type === 'free_input';
+
+          if (isClosestPin) {
+            const isWinner = Boolean(lastAnswerObj?.isWinner);
+            const hasPin = lastAnswerObj?.lat !== undefined;
+            const distanceFormatted = lastAnswerObj?.distanceFormatted;
+            const revealStage = roomData?.revealStage || 1;
+
+            return (
+              <main className="my-auto text-center flex flex-col items-center w-full max-w-sm mx-auto space-y-4">
+                {revealStage < 3 ? (
+                  <div className="p-8 rounded-3xl bg-slate-900 border border-emerald-500/40 shadow-2xl w-full space-y-4">
+                    <div className="w-16 h-16 mx-auto rounded-full bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 animate-pulse">
+                      <MapPinIcon className="w-8 h-8" />
+                    </div>
+                    <h2 className="text-2xl font-black text-white">Revealing Guesses!</h2>
+                    <p className="text-xs text-slate-300 leading-relaxed">
+                      Look up at the main display screen! The host is revealing player guesses on the world map.
+                    </p>
+                  </div>
+                ) : isWinner ? (
+                  <div className="p-8 rounded-3xl bg-gradient-to-br from-amber-950/70 to-slate-900 border-2 border-amber-500 shadow-2xl w-full animate-in zoom-in-95 duration-300 space-y-3">
+                    <TrophyIcon className="w-16 h-16 text-amber-400 mx-auto animate-bounce" />
+                    <h2 className="text-2xl sm:text-3xl font-black text-white">Closest Pin Winner! 👑</h2>
+                    <p className="text-lg font-black text-amber-400">
+                      +{lastAnswerObj?.pointsAwarded ?? (currentQuestion?.points !== undefined ? currentQuestion.points : 1)} Point
+                    </p>
+                    <div className="p-3 rounded-2xl bg-slate-950/80 border border-amber-500/30 text-xs text-amber-200">
+                      <span className="block text-[10px] uppercase font-bold text-slate-400">Your distance to {currentQuestion?.landmarkName || 'landmark'}:</span>
+                      <span className="font-mono font-black text-lg text-amber-300">{distanceFormatted}</span>
+                    </div>
+                    <p className="text-xs text-slate-400 pt-1">
+                      Total Score: <span className="text-amber-300 font-mono font-bold">{myPlayerObj?.score || 0} pts</span>
+                    </p>
+                  </div>
+                ) : hasPin ? (
+                  <div className="p-8 rounded-3xl bg-slate-900 border border-slate-800 shadow-2xl w-full space-y-3">
+                    <div className="w-14 h-14 mx-auto rounded-full bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400">
+                      <MapPinIcon className="w-7 h-7" />
+                    </div>
+                    <h2 className="text-2xl font-black text-white">Great Effort!</h2>
+                    <div className="p-3 rounded-2xl bg-slate-950 border border-slate-800 text-xs">
+                      <span className="block text-[10px] uppercase font-bold text-slate-400">Your distance:</span>
+                      <span className="font-mono font-bold text-emerald-300 text-base">{distanceFormatted}</span>
+                      <span className="block text-[10px] text-slate-500 mt-1">from {currentQuestion?.landmarkName || 'the target'}</span>
+                    </div>
+                    <p className="text-xs text-slate-400">
+                      Check the big screen to see who had the closest guess!
+                    </p>
+                    <p className="text-xs text-slate-400 pt-1">
+                      Total Score: <span className="text-purple-300 font-mono font-bold">{myPlayerObj?.score || 0} pts</span>
+                    </p>
+                  </div>
+                ) : (
+                  <div className="p-8 rounded-3xl bg-slate-900 border border-slate-800 shadow-2xl w-full">
+                    <div className="w-14 h-14 mx-auto rounded-full bg-slate-800 flex items-center justify-center text-slate-400 mb-3">
+                      <XCircleIcon className="w-8 h-8" />
+                    </div>
+                    <h2 className="text-xl font-black text-white">No Pin Placed</h2>
+                    <p className="text-xs text-slate-400 mt-1">You didn't drop a pin before time ran out.</p>
+                  </div>
+                )}
+              </main>
+            );
+          }
+
           const isCorrect = lastAnswerObj !== undefined
             ? Boolean(lastAnswerObj.isCorrect)
             : (isFree ? false : myAnswer === currentQuestion?.correctIndex);

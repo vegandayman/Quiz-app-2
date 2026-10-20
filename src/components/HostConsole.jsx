@@ -2,8 +2,16 @@ import React, { useState, useEffect } from 'react';
 import { ref, onValue, update } from 'firebase/database';
 import { db } from '../firebase.js';
 import QuizMaker from './QuizMaker.jsx';
+import { findClosestPlayers } from '../utils/geoDistance.js';
 
 // Clean inline SVGs (zero external dependencies)
+const MapPinIcon = ({ className = 'w-4 h-4' }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z" />
+    <circle cx="12" cy="10" r="3" />
+  </svg>
+);
+
 const EyeIcon = ({ className = 'w-5 h-5' }) => (
   <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" />
@@ -175,6 +183,20 @@ const defaultQuestions = [
     timeLimit: 60
   },
   {
+    id: 'closest-pin-eiffel',
+    type: 'closest_pin',
+    question: 'Where in the world was this photo taken?',
+    landmarkName: 'Eiffel Tower',
+    locationName: 'Paris, France',
+    imageUrl: 'https://images.unsplash.com/photo-1511739001486-6bfe10ce785f?auto=format&fit=crop&w=1200&q=80',
+    lat: 48.8584,
+    lng: 2.2945,
+    unit: 'km',
+    points: 1,
+    secretNote: 'Gustave Eiffel built this tower for the 1889 World Fair. It stands on the Champ de Mars by the Seine River!',
+    timeLimit: 60
+  },
+  {
     id: 'final-end-screen',
     type: 'end',
     title: "Final Scoreboard & Winners' Podium",
@@ -343,6 +365,7 @@ export default function HostConsole({ onOpenDisplay, onRoomCodeReady }) {
   const choiceTally = [0, 0, 0, 0];
   const choicePlayers = [[], [], [], []];
   const freeTextAnswers = [];
+  const pinAnswers = [];
   let totalSubmitted = 0;
 
   players.forEach((p) => {
@@ -370,9 +393,47 @@ export default function HostConsole({ onOpenDisplay, onRoomCodeReady }) {
           answeredAt: answer.answeredAt
         });
       }
+      if (answer.lat !== undefined && answer.lng !== undefined) {
+        pinAnswers.push({
+          id: p.id,
+          name: p.name,
+          score: p.score || 0,
+          lat: Number(answer.lat),
+          lng: Number(answer.lng),
+          guessLat: answer.lat,
+          guessLng: answer.lng,
+          timeElapsedSec: answer.timeElapsedSec,
+          answeredAt: answer.answeredAt,
+          isWinner: answer.isWinner,
+          distance: answer.distance,
+          distanceFormatted: answer.distanceFormatted,
+          pointsAwarded: answer.pointsAwarded
+        });
+      }
       totalSubmitted++;
     }
   });
+
+  const isClosestPin = activeQuestion?.type === 'closest_pin';
+  const targetLat = activeQuestion?.lat !== undefined ? Number(activeQuestion.lat) : 48.8584;
+  const targetLng = activeQuestion?.lng !== undefined ? Number(activeQuestion.lng) : 2.2945;
+  const unit = activeQuestion?.unit || 'km';
+
+  // Compute live closest player rankings for closest_pin
+  const mapPlayersList = players.map((p) => {
+    const ans = p.answers?.[currentQIndex];
+    return {
+      id: p.id,
+      name: p.name,
+      score: p.score || 0,
+      lat: ans?.lat !== undefined ? Number(ans.lat) : undefined,
+      lng: ans?.lng !== undefined ? Number(ans.lng) : undefined,
+      guessLat: ans?.lat,
+      guessLng: ans?.lng
+    };
+  });
+  const rankedMapPlayers = isClosestPin ? findClosestPlayers(targetLat, targetLng, mapPlayersList, unit) : [];
+  const revealStage = roomData?.revealStage || 1;
 
   const allPlayersAnswered = players.length > 0 && totalSubmitted === players.length;
 
@@ -399,6 +460,7 @@ export default function HostConsole({ onOpenDisplay, onRoomCodeReady }) {
       ...resetPlayersUpdates,
       status: isSplash ? 'splash' : 'question',
       currentQuestionIndex: 0,
+      revealStage: 1,
       questionStartTime: Date.now(),
       timeLimit: firstItem?.timeLimit || 60
     });
@@ -407,9 +469,48 @@ export default function HostConsole({ onOpenDisplay, onRoomCodeReady }) {
   // 2. REVEAL ANSWER (Question -> Reveal)
   const handleRevealAnswer = async () => {
     const roomRef = ref(db, `rooms/${roomCode}`);
+
+    // If active question is closest_pin, calculate winners and award points according to Option A
+    if (activeQuestion?.type === 'closest_pin') {
+      const pts = activeQuestion.points !== undefined && activeQuestion.points !== '' ? Math.max(0, Number(activeQuestion.points)) : 1;
+      const updates = {
+        status: 'reveal',
+        revealStage: 1
+      };
+
+      rankedMapPlayers.forEach((p) => {
+        if (p.hasGuessed) {
+          updates[`players/${p.id}/answers/${currentQIndex}/distance`] = p.distance;
+          updates[`players/${p.id}/answers/${currentQIndex}/distanceFormatted`] = p.distanceFormatted;
+          updates[`players/${p.id}/answers/${currentQIndex}/isWinner`] = Boolean(p.isWinner);
+          updates[`players/${p.id}/answers/${currentQIndex}/pointsAwarded`] = p.isWinner ? pts : 0;
+          if (p.isWinner) {
+            updates[`players/${p.id}/score`] = (p.score || 0) + pts;
+          }
+        }
+      });
+
+      await update(roomRef, updates);
+      return;
+    }
+
     await update(roomRef, {
-      status: 'reveal'
+      status: 'reveal',
+      revealStage: 1
     });
+  };
+
+  // Closest-Wins 4-Stage Stepper Controllers
+  const handleSetRevealStage = async (stage) => {
+    const roomRef = ref(db, `rooms/${roomCode}`);
+    await update(roomRef, { revealStage: stage });
+  };
+
+  const handleNextRevealStage = async () => {
+    const current = roomData?.revealStage || 1;
+    if (current < 4) {
+      await handleSetRevealStage(current + 1);
+    }
   };
 
   // 3. SHOW LEADERBOARD (Reveal -> Leaderboard)
@@ -433,7 +534,8 @@ export default function HostConsole({ onOpenDisplay, onRoomCodeReady }) {
       if (isEnd) {
         await update(roomRef, {
           status: 'finished',
-          currentQuestionIndex: nextIndex
+          currentQuestionIndex: nextIndex,
+          revealStage: 1
         });
         return;
       }
@@ -441,12 +543,14 @@ export default function HostConsole({ onOpenDisplay, onRoomCodeReady }) {
       await update(roomRef, {
         status: isSplash ? 'splash' : 'question',
         currentQuestionIndex: nextIndex,
+        revealStage: 1,
         questionStartTime: Date.now(),
         timeLimit: nextItem?.timeLimit || 60
       });
     } else {
       await update(roomRef, {
-        status: 'finished'
+        status: 'finished',
+        revealStage: 1
       });
     }
   };
@@ -649,21 +753,43 @@ export default function HostConsole({ onOpenDisplay, onRoomCodeReady }) {
               )}
 
               {status === 'reveal' && (
-                <>
-                  <div className="flex items-center gap-2">
-                    <h2 className="text-2xl font-black text-emerald-400">Answer Revealed!</h2>
-                    {!shouldShowScoreboard && (
-                      <span className="px-2 py-0.5 rounded-md bg-purple-500/20 border border-purple-500/40 text-purple-300 text-[10px] font-bold uppercase tracking-wider">
-                        Scoreboard Off • Direct to Next
+                isClosestPin ? (
+                  <>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="px-3 py-1 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 font-mono text-xs font-bold flex items-center gap-1.5">
+                        <MapPinIcon className="w-3.5 h-3.5" /> STAGE {revealStage} OF 4
                       </span>
-                    )}
-                  </div>
-                  <p className="text-xs text-slate-300 mt-1">
-                    {shouldShowScoreboard
-                      ? 'Correct answer & vote stats are on the big screen. Discuss host notes below, then present the scoreboard!'
-                      : 'Correct answer & vote stats are on the big screen. Ending the question goes directly to the next slide!'}
-                  </p>
-                </>
+                      <h2 className="text-2xl font-black text-emerald-400">
+                        {revealStage === 1 && '1. The World Map'}
+                        {revealStage === 2 && `2. Player Guesses (${rankedMapPlayers.filter((p) => p.hasGuessed).length} Pins)`}
+                        {revealStage === 3 && `3. Actual Location: ${activeQuestion?.landmarkName || 'Landmark'}!`}
+                        {revealStage >= 4 && '4. Closest Winners Zoom!'}
+                      </h2>
+                    </div>
+                    <p className="text-xs text-slate-300 mt-1">
+                      {revealStage === 1 && 'Clean borderless world map is displayed on the big screen. Click Stage 2 to reveal all player guess pins!'}
+                      {revealStage === 2 && 'Player guess pins are shown on the world map. Click Stage 3 to reveal the actual golden star location!'}
+                      {revealStage === 3 && `Golden star location revealed at ${activeQuestion?.landmarkName || 'the target'}! Click Stage 4 to zoom into winners!`}
+                      {revealStage >= 4 && 'Camera zoomed in on the star and closest guesses with winner congratulations! Advance when ready.'}
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <div className="flex items-center gap-2">
+                      <h2 className="text-2xl font-black text-emerald-400">Answer Revealed!</h2>
+                      {!shouldShowScoreboard && (
+                        <span className="px-2 py-0.5 rounded-md bg-purple-500/20 border border-purple-500/40 text-purple-300 text-[10px] font-bold uppercase tracking-wider">
+                          Scoreboard Off • Direct to Next
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-slate-300 mt-1">
+                      {shouldShowScoreboard
+                        ? 'Correct answer & vote stats are on the big screen. Discuss host notes below, then present the scoreboard!'
+                        : 'Correct answer & vote stats are on the big screen. Ending the question goes directly to the next slide!'}
+                    </p>
+                  </>
+                )
               )}
 
               {status === 'leaderboard' && (
@@ -733,7 +859,7 @@ export default function HostConsole({ onOpenDisplay, onRoomCodeReady }) {
                     }`}
                   >
                     <EyeIcon className="w-5 h-5" />
-                    <span>Reveal Answer on Big Screen</span>
+                    <span>{isClosestPin ? 'Begin 4-Stage World Map Reveal' : 'Reveal Answer on Big Screen'}</span>
                   </button>
 
                   {!shouldShowScoreboard && (
@@ -751,7 +877,108 @@ export default function HostConsole({ onOpenDisplay, onRoomCodeReady }) {
               )}
 
               {status === 'reveal' && (
-                shouldShowScoreboard ? (
+                isClosestPin ? (
+                  <div className="flex flex-col items-end gap-2.5">
+                    {/* 4-Stage Stepper Pills */}
+                    <div className="flex items-center gap-1 bg-slate-900 border border-slate-800 p-1 rounded-xl text-xs font-bold">
+                      <button
+                        type="button"
+                        onClick={() => handleSetRevealStage(1)}
+                        className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+                          revealStage === 1
+                            ? 'bg-emerald-600 text-white shadow'
+                            : 'text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        1. Map
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleSetRevealStage(2)}
+                        className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+                          revealStage === 2
+                            ? 'bg-emerald-600 text-white shadow'
+                            : 'text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        2. Guesses
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleSetRevealStage(3)}
+                        className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+                          revealStage === 3
+                            ? 'bg-emerald-600 text-white shadow'
+                            : 'text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        3. Star
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleSetRevealStage(4)}
+                        className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+                          revealStage >= 4
+                            ? 'bg-amber-500 text-slate-950 font-black shadow'
+                            : 'text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        4. Zoom
+                      </button>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      {revealStage < 4 ? (
+                        <button
+                          type="button"
+                          onClick={handleNextRevealStage}
+                          className="px-6 py-3.5 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-white font-black text-sm flex items-center gap-2 shadow-xl shadow-emerald-500/30 cursor-pointer transition-all active:scale-95"
+                        >
+                          <span>
+                            {revealStage === 1 && 'Next Stage: Reveal Player Guesses →'}
+                            {revealStage === 2 && 'Next Stage: Reveal Star Location →'}
+                            {revealStage === 3 && 'Next Stage: Zoom to Winners 🎯'}
+                          </span>
+                          <ArrowRightIcon className="w-4 h-4" />
+                        </button>
+                      ) : shouldShowScoreboard ? (
+                        <button
+                          type="button"
+                          onClick={handleShowLeaderboard}
+                          className="px-6 py-3.5 rounded-2xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-black text-sm flex items-center gap-2 shadow-xl shadow-amber-500/30 cursor-pointer transition-all active:scale-95"
+                        >
+                          <TrophyIcon className="w-4 h-4" />
+                          <span>Present Scoreboard</span>
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={handleNextQuestion}
+                          className="px-6 py-3.5 rounded-2xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-black text-sm flex items-center gap-2 shadow-xl shadow-purple-600/30 cursor-pointer transition-all active:scale-95"
+                        >
+                          <span>Next Slide</span>
+                          <ArrowRightIcon className="w-4 h-4" />
+                        </button>
+                      )}
+
+                      {revealStage < 4 && (
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            if (shouldShowScoreboard) {
+                              await handleShowLeaderboard();
+                            } else {
+                              await handleNextQuestion();
+                            }
+                          }}
+                          className="px-3.5 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white text-xs font-semibold cursor-pointer border border-slate-700"
+                        >
+                          Skip Reveal
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ) : shouldShowScoreboard ? (
                   <button
                     type="button"
                     onClick={handleShowLeaderboard}
@@ -947,8 +1174,9 @@ export default function HostConsole({ onOpenDisplay, onRoomCodeReady }) {
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2">
                 <span className="px-3 py-1 rounded-full bg-purple-500/20 border border-purple-500/40 text-purple-300 font-mono text-xs font-bold flex items-center gap-1.5">
+                  {activeQuestion.type === 'closest_pin' && <MapPinIcon className="w-3.5 h-3.5 text-emerald-400" />}
                   {activeQuestion.type === 'free_input' && <KeyboardIcon className="w-3.5 h-3.5 text-cyan-400" />}
-                  <span>{activeQuestion.type === 'free_input' ? 'FREE-TEXT' : 'QUESTION'} {questionsPassed} OF {totalQuestions}</span>
+                  <span>{activeQuestion.type === 'closest_pin' ? 'CLOSEST-PIN' : activeQuestion.type === 'free_input' ? 'FREE-TEXT' : 'QUESTION'} {questionsPassed} OF {totalQuestions}</span>
                 </span>
                 <span className="px-2.5 py-1 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300 font-mono text-xs font-bold flex items-center gap-1">
                   <AwardIcon className="w-3.5 h-3.5 text-amber-400" />
@@ -966,8 +1194,79 @@ export default function HostConsole({ onOpenDisplay, onRoomCodeReady }) {
               {activeQuestion.question}
             </h2>
 
-            {/* Answer Display: Free-Input Target vs Multiple Choice Options */}
-            {activeQuestion.type === 'free_input' ? (
+            {/* Answer Display: Closest-Pin Target vs Free-Input Target vs Multiple Choice Options */}
+            {activeQuestion.type === 'closest_pin' ? (
+              <div className="p-5 rounded-2xl bg-emerald-950/30 border-2 border-emerald-500/50 space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-emerald-900/40">
+                  <span className="text-xs font-bold uppercase tracking-wider text-emerald-300 flex items-center gap-1.5">
+                    <MapPinIcon className="w-4 h-4 text-emerald-400" />
+                    Target Mystery Landmark & Coordinates
+                  </span>
+                  <span className="text-[11px] font-mono text-emerald-400/90 bg-emerald-950 border border-emerald-800/80 px-2 py-0.5 rounded">
+                    Closest Guess Wins • Measured in {activeQuestion.unit || 'km'}
+                  </span>
+                </div>
+
+                <div className="flex flex-col md:flex-row items-center gap-5">
+                  {activeQuestion.imageUrl && (
+                    <div className="w-full md:w-56 h-36 rounded-xl overflow-hidden border border-emerald-500/40 shrink-0 bg-slate-950 shadow-md">
+                      <img
+                        src={activeQuestion.imageUrl}
+                        alt="Mystery Landmark"
+                        className="w-full h-full object-cover object-center"
+                      />
+                    </div>
+                  )}
+
+                  <div className="flex-1 space-y-2 text-left">
+                    <div>
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400">Target Landmark:</span>
+                      <h3 className="text-xl font-black text-white">{activeQuestion.landmarkName || 'Landmark'}</h3>
+                      {activeQuestion.locationName && (
+                        <p className="text-xs text-slate-300">{activeQuestion.locationName}</p>
+                      )}
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2 pt-1 font-mono text-xs">
+                      <span className="px-2.5 py-1 rounded-lg bg-slate-950 border border-emerald-500/30 text-emerald-300">
+                        Lat: {targetLat.toFixed(4)}°
+                      </span>
+                      <span className="px-2.5 py-1 rounded-lg bg-slate-950 border border-emerald-500/30 text-emerald-300">
+                        Lng: {targetLng.toFixed(4)}°
+                      </span>
+                      <span className="px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800 text-slate-300">
+                        Unit: {activeQuestion.unit === 'miles' ? 'Miles (mi)' : 'Kilometers (km)'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Ranked Player Guesses */}
+                {rankedMapPlayers.filter((p) => p.hasGuessed).length > 0 && (
+                  <div className="pt-2 border-t border-emerald-900/40 space-y-2">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-slate-300">
+                      Ranked Player Guesses ({rankedMapPlayers.filter((p) => p.hasGuessed).length} placed):
+                    </span>
+                    <div className="flex flex-wrap gap-2">
+                      {rankedMapPlayers.filter((p) => p.hasGuessed).map((player, idx) => (
+                        <div
+                          key={player.id}
+                          className={`px-3 py-1.5 rounded-xl text-xs flex items-center gap-1.5 border font-bold ${
+                            player.isWinner
+                              ? 'bg-amber-500/20 border-amber-500 text-amber-200 ring-2 ring-amber-400/30'
+                              : 'bg-slate-950 border-slate-800 text-slate-300'
+                          }`}
+                        >
+                          <span className="text-slate-500 font-mono">#{idx + 1}</span>
+                          <span>{player.isWinner ? `👑 ${player.name}` : player.name}</span>
+                          <span className="font-mono text-emerald-400">({player.distanceFormatted})</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : activeQuestion.type === 'free_input' ? (
               <div className="p-5 rounded-2xl bg-cyan-950/30 border-2 border-cyan-500/50 space-y-3">
                 <div className="flex items-center justify-between pb-2 border-b border-cyan-900/40">
                   <span className="text-xs font-bold uppercase tracking-wider text-cyan-300 flex items-center gap-1.5">
@@ -1088,11 +1387,12 @@ export default function HostConsole({ onOpenDisplay, onRoomCodeReady }) {
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 mt-2">
                   {players.map((p) => {
                     const ans = p.answers?.[currentQIndex];
-                    const hasAnswered = ans !== undefined && (ans.choiceIndex !== undefined || ans.textAnswer !== undefined);
+                    const hasAnswered = ans !== undefined && (ans.choiceIndex !== undefined || ans.textAnswer !== undefined || (ans.lat !== undefined && ans.lng !== undefined));
+                    const isPin = hasAnswered && ans.lat !== undefined && ans.lng !== undefined;
                     const isTextAnswer = hasAnswered && ans.textAnswer !== undefined;
-                    const choiceShape = hasAnswered && !isTextAnswer ? shapes[ans.choiceIndex] : null;
-                    const choiceText = hasAnswered && !isTextAnswer ? activeQuestion.options?.[ans.choiceIndex] : '';
-                    const isCorrect = hasAnswered && Boolean(ans.isCorrect);
+                    const choiceShape = hasAnswered && !isTextAnswer && !isPin ? shapes[ans.choiceIndex] : null;
+                    const choiceText = hasAnswered && !isTextAnswer && !isPin ? activeQuestion.options?.[ans.choiceIndex] : '';
+                    const isCorrect = hasAnswered && (isPin ? Boolean(ans.isWinner) : Boolean(ans.isCorrect));
 
                     return (
                       <div
@@ -1101,17 +1401,31 @@ export default function HostConsole({ onOpenDisplay, onRoomCodeReady }) {
                           hasAnswered
                             ? isCorrect
                               ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-100'
-                              : 'bg-rose-950/40 border-rose-500/40 text-rose-100'
+                              : isPin
+                                ? 'bg-emerald-950/20 border-emerald-800/40 text-slate-200'
+                                : 'bg-rose-950/40 border-rose-500/40 text-rose-100'
                             : 'bg-slate-900/60 border-slate-800/80 text-slate-400'
                         }`}
                       >
                         <div className="flex items-center gap-2 truncate">
-                          <span className={`w-2 h-2 rounded-full shrink-0 ${hasAnswered ? (isCorrect ? 'bg-emerald-400' : 'bg-rose-400') : 'bg-amber-400 animate-ping'}`} />
+                          <span className={`w-2 h-2 rounded-full shrink-0 ${hasAnswered ? (isCorrect ? 'bg-emerald-400' : isPin ? 'bg-emerald-400' : 'bg-rose-400') : 'bg-amber-400 animate-ping'}`} />
                           <span className="font-bold text-white truncate">{p.name}</span>
                         </div>
 
                         {hasAnswered ? (
-                          isTextAnswer ? (
+                          isPin ? (
+                            <div className="flex items-center gap-1.5 shrink-0 font-mono font-bold">
+                              <span className="px-2 py-0.5 rounded bg-slate-800 text-emerald-300 text-[11px] flex items-center gap-1">
+                                <MapPinIcon className="w-3 h-3 text-emerald-400" />
+                                {status === 'reveal'
+                                  ? (ans.distanceFormatted || 'Pin placed')
+                                  : `${Number(ans.lat).toFixed(1)}°, ${Number(ans.lng).toFixed(1)}°`}
+                              </span>
+                              {status === 'reveal' && ans.isWinner && (
+                                <span className="text-amber-400" title="Closest Guess Winner!">👑</span>
+                              )}
+                            </div>
+                          ) : isTextAnswer ? (
                             <div className="flex items-center gap-1.5 shrink-0 font-mono font-bold">
                               <span className="truncate max-w-[90px] px-2 py-0.5 rounded bg-slate-800 text-cyan-200 text-xs" title={ans.textAnswer}>
                                 "{ans.textAnswer}"
