@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { coordsToPoint, pointToCoords } from '../utils/geoDistance.js';
-import { WORLD_CONTINENTS } from '../data/worldCoastlines.js';
+import { WORLD_PATH } from '../data/worldCoastlines.js';
 
 /**
  * WorldMap Component
@@ -154,15 +154,13 @@ export default function WorldMap({
     ? coordsToPoint(targetPin.lat, targetPin.lng)
     : null;
 
-  // Scale marker sizes according to current zoom level so markers remain crisp
-  const zoomScale = viewBox.width / 1000;
-  const pinRadius = Math.max(4, 8 * zoomScale);
-  const targetStarRadius = Math.max(6, 13 * zoomScale);
+  // Counter-scaling factor: exactly cancels SVG viewport zoom so markers remain at constant screen size!
+  const markerScale = viewBox.width / 1000;
 
   // Check if click/touch is near the existing placed pin
   const isNearSelectedPin = (svgCoords) => {
     if (!selectedPt || !svgCoords) return false;
-    const hitRadius = pinRadius * 3;
+    const hitRadius = 28 * markerScale;
     const dx = svgCoords.x - selectedPt.x;
     const dy = svgCoords.y - selectedPt.y;
     return Math.hypot(dx, dy) <= hitRadius;
@@ -396,17 +394,12 @@ export default function WorldMap({
         {/* Ocean Background Canvas */}
         <rect x="0" y="0" width="1000" height="500" fill={oceanColor} />
 
-        {/* High-Detail Vector Landmasses (Zero borders, zero text labels) */}
-        <g id="world-continents">
-          {WORLD_CONTINENTS.map((continent) => (
-            <path
-              key={continent.id}
-              d={continent.d}
-              fill={landColor}
-              className="transition-colors duration-300"
-            />
-          ))}
-        </g>
+        {/* High-Detail Natural Earth 50m Vector Landmass (Zero borders, zero text labels) */}
+        <path
+          d={WORLD_PATH}
+          fill={landColor}
+          className="transition-colors duration-300"
+        />
 
         {/* Distance Connection Lines (Stage 3 & 4 Reveal) */}
         {showDistanceLines && showTarget && targetPt && showPlayerPins && (
@@ -424,51 +417,55 @@ export default function WorldMap({
                   x2={targetPt.x}
                   y2={targetPt.y}
                   stroke={isWinner ? '#fbbf24' : 'rgba(148, 163, 184, 0.4)'}
-                  strokeWidth={isWinner ? Math.max(1.5, 2.5 * zoomScale) : Math.max(0.75, 1.2 * zoomScale)}
-                  strokeDasharray={isWinner ? 'none' : `${4 * zoomScale} ${3 * zoomScale}`}
+                  strokeWidth={isWinner ? 2 * markerScale : 1 * markerScale}
+                  strokeDasharray={isWinner ? 'none' : `${4 * markerScale} ${3 * markerScale}`}
                 />
               );
             })}
           </g>
         )}
 
-        {/* Player Guess Pins (Reveal Stage 2, 3, 4) - Pure clean markers, zero text labels */}
+        {/* Player Guess Pins (Reveal Stage 2, 3, 4) - Constant screen size */}
         {showPlayerPins && playerPins.map((player) => {
           if (player.lat === undefined || player.lng === undefined || isNaN(player.lat)) return null;
           const pt = coordsToPoint(player.lat, player.lng);
           const pinColor = player.isWinner ? '#f59e0b' : (player.color || '#a855f7');
 
           return (
-            <g key={player.id} className="transition-all duration-500 ease-out">
-              {/* Winner double ring */}
+            <g
+              key={player.id}
+              transform={`translate(${pt.x}, ${pt.y}) scale(${markerScale})`}
+              className="transition-all duration-500 ease-out"
+            >
+              {/* Winner halo ring */}
               {player.isWinner && (
                 <circle
-                  cx={pt.x}
-                  cy={pt.y}
-                  r={pinRadius * 1.6}
+                  cx="0"
+                  cy="0"
+                  r="13"
                   fill="none"
                   stroke="#fbbf24"
-                  strokeWidth={1.5 * zoomScale}
-                  strokeDasharray={`${3 * zoomScale} ${2 * zoomScale}`}
+                  strokeWidth="1.5"
+                  strokeDasharray="3 2"
                 />
               )}
 
               {/* Pin Base & Center */}
               <circle
-                cx={pt.x}
-                cy={pt.y}
-                r={pinRadius}
+                cx="0"
+                cy="0"
+                r="7"
                 fill={pinColor}
                 stroke="#ffffff"
-                strokeWidth={Math.max(1, 1.5 * zoomScale)}
+                strokeWidth="1.5"
               />
 
               {/* Winner inner center dot */}
               {player.isWinner && (
                 <circle
-                  cx={pt.x}
-                  cy={pt.y}
-                  r={pinRadius * 0.35}
+                  cx="0"
+                  cy="0"
+                  r="2.5"
                   fill="#ffffff"
                 />
               )}
@@ -476,75 +473,68 @@ export default function WorldMap({
           );
         })}
 
-        {/* User Currently Selected Pin (Mobile Player Screen) - Anchored needle pin, zero text labels */}
+        {/* User Currently Selected Pin (Mobile Player Screen) - Anchored needle pin, constant screen size */}
         {selectedPt && (
-          <g filter="url(#pin-shadow)">
+          <g
+            transform={`translate(${selectedPt.x}, ${selectedPt.y}) scale(${markerScale})`}
+            filter="url(#pin-shadow)"
+          >
             {/* Ground shadow ellipse */}
             <ellipse
-              cx={selectedPt.x}
-              cy={selectedPt.y + 1 * zoomScale}
-              rx={pinRadius * 0.7}
-              ry={pinRadius * 0.28}
+              cx="0"
+              cy="1.5"
+              rx="6"
+              ry="2.5"
               fill="rgba(0, 0, 0, 0.45)"
             />
 
-            {/* Needle Pin Body with point anchored precisely at (selectedPt.x, selectedPt.y) */}
+            {/* Needle Pin Body with tip anchored precisely at (0, 0) */}
             <path
-              d={`M ${selectedPt.x} ${selectedPt.y}
-                  C ${selectedPt.x - pinRadius * 0.85} ${selectedPt.y - pinRadius * 0.9}
-                    ${selectedPt.x - pinRadius * 1.1} ${selectedPt.y - pinRadius * 2.2}
-                    ${selectedPt.x} ${selectedPt.y - pinRadius * 2.2}
-                  C ${selectedPt.x + pinRadius * 1.1} ${selectedPt.y - pinRadius * 2.2}
-                    ${selectedPt.x + pinRadius * 0.85} ${selectedPt.y - pinRadius * 0.9}
-                    ${selectedPt.x} ${selectedPt.y} Z`}
+              d="M 0 0 C -7 -8 -9 -19 0 -19 C 9 -19 7 -8 0 0 Z"
               fill="#06b6d4"
               stroke="#ffffff"
-              strokeWidth={Math.max(1, 1.6 * zoomScale)}
+              strokeWidth="1.6"
             />
 
             {/* Inner pin eyelet dot */}
             <circle
-              cx={selectedPt.x}
-              cy={selectedPt.y - pinRadius * 1.45}
-              r={pinRadius * 0.35}
+              cx="0"
+              cy="-12.5"
+              r="3"
               fill="#ffffff"
             />
           </g>
         )}
 
-        {/* Actual Target Pin (Gold Star) - Clean radiant star, zero text labels */}
+        {/* Actual Target Pin (Gold Star) - Clean radiant star, constant screen size */}
         {showTarget && targetPt && (
-          <g filter="url(#star-glow)">
+          <g
+            transform={`translate(${targetPt.x}, ${targetPt.y}) scale(${markerScale})`}
+            filter="url(#star-glow)"
+          >
             {/* Stationary halo ring */}
             <circle
-              cx={targetPt.x}
-              cy={targetPt.y}
-              r={targetStarRadius * 1.3}
+              cx="0"
+              cy="0"
+              r="17"
               fill="rgba(251, 191, 36, 0.18)"
               stroke="#fbbf24"
-              strokeWidth={0.8 * zoomScale}
+              strokeWidth="1"
             />
 
             {/* Target 8-Point Star Marker */}
             <path
-              d={`M ${targetPt.x} ${targetPt.y - targetStarRadius}
-                  L ${targetPt.x + targetStarRadius * 0.28} ${targetPt.y - targetStarRadius * 0.28}
-                  L ${targetPt.x + targetStarRadius} ${targetPt.y}
-                  L ${targetPt.x + targetStarRadius * 0.28} ${targetPt.y + targetStarRadius * 0.28}
-                  L ${targetPt.x} ${targetPt.y + targetStarRadius}
-                  L ${targetPt.x - targetStarRadius * 0.28} ${targetPt.y + targetStarRadius * 0.28}
-                  L ${targetPt.x - targetStarRadius} ${targetPt.y}
-                  L ${targetPt.x - targetStarRadius * 0.28} ${targetPt.y - targetStarRadius * 0.28} Z`}
+              d="M 0 -13 L 3.6 -3.6 L 13 0 L 3.6 3.6 L 0 13 L -3.6 3.6 L -13 0 L -3.6 -3.6 Z"
               fill="#fbbf24"
               stroke="#ffffff"
-              strokeWidth={Math.max(1, 1.8 * zoomScale)}
+              strokeWidth="1.8"
             />
 
             {/* Center core */}
             <circle
-              cx={targetPt.x}
-              cy={targetPt.y}
-              r={targetStarRadius * 0.25}
+              cx="0"
+              cy="0"
+              r="3.5"
               fill="#ffffff"
             />
           </g>
