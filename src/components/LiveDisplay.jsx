@@ -672,11 +672,13 @@ export default function LiveDisplay({ roomCode: initialRoomCode = '' }) {
         }`}>
           {!(isPaSparet && isReveal) && (
             <div className={`w-full bg-slate-900/90 border border-slate-800 rounded-3xl text-center shadow-2xl transition-all ${
-              isPaSparet
-                ? 'py-3.5 px-6 mb-4'
-                : (isClosestPin) && isReveal ? 'p-4 sm:p-6 mb-4' : 'p-6 sm:p-8 mb-6'
+              isClosestPin && isReveal
+                ? 'py-2 px-4 mb-3'
+                : isPaSparet
+                  ? 'py-3.5 px-6 mb-4'
+                  : 'p-6 sm:p-8 mb-6'
             }`}>
-              <h2 className={`${isPaSparet ? 'text-xl sm:text-2xl font-bold' : 'text-2xl sm:text-4xl font-black'} tracking-tight text-white leading-snug`}>
+              <h2 className={`${(isClosestPin && isReveal) ? 'text-base sm:text-lg font-bold' : isPaSparet ? 'text-xl sm:text-2xl font-bold' : 'text-2xl sm:text-4xl font-black'} tracking-tight text-white leading-snug`}>
                 {currentQuestion?.question || (isPaSparet ? 'Vart är vi på väg? / Where are we heading?' : 'Question')}
               </h2>
             </div>
@@ -723,128 +725,112 @@ export default function LiveDisplay({ roomCode: initialRoomCode = '' }) {
                 </div>
               </div>
             ) : (
-              /* Revealed Closest-Wins 4-Stage World Map View */
-              <div className="w-full space-y-4">
-                {/* 4-Stage Stepper Bar */}
-                <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-3 flex flex-wrap items-center justify-between gap-2 shadow-xl">
-                  <div className="flex items-center gap-2">
-                    <span className="px-3 py-1 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-xs font-black uppercase tracking-wider flex items-center gap-1.5">
-                      <MapPinIcon className="w-3.5 h-3.5" /> Stage {revealStage} of 4
-                    </span>
-                    <span className="text-sm font-bold text-white">
-                      {revealStage === 1 && '1. The World Map'}
-                      {revealStage === 2 && `2. Player Guesses (${rankedMapPlayers.filter((p) => p.hasGuessed).length} Pins)`}
-                      {revealStage === 3 && `3. Actual Location: ${currentQuestion?.landmarkName || 'Landmark'}!`}
-                      {revealStage >= 4 && `4. Closest Winners Zoom!`}
-                    </span>
-                  </div>
+              /* Revealed Closest-Wins World Map View */
+              <div className="w-full">
+                {revealStage >= 4 ? (
+                  /* Stage 4: Map & Winner Side-by-Side dynamically scaled to viewport height */
+                  <div className="w-full grid grid-cols-1 lg:grid-cols-12 gap-5 items-stretch h-[68vh] min-h-[440px] max-h-[82vh]">
+                    {/* Left Column: Zoomed Map */}
+                    <div className="lg:col-span-7 xl:col-span-8 h-full rounded-3xl overflow-hidden border-2 border-emerald-500/40 shadow-2xl relative">
+                      <WorldMap
+                        targetPin={{
+                          lat: targetLat,
+                          lng: targetLng,
+                          label: `${currentQuestion?.landmarkName || 'Target'}${currentQuestion?.locationName ? ` (${currentQuestion.locationName})` : ''}`
+                        }}
+                        playerPins={rankedMapPlayers}
+                        showTarget={true}
+                        showPlayerPins={true}
+                        showDistanceLines={true}
+                        focusBounds={focusBounds}
+                        className="w-full h-full"
+                      />
+                    </div>
 
-                  {/* Stage Progress Pills */}
-                  <div className="flex items-center gap-1.5 text-xs font-bold">
-                    <span className={`px-2.5 py-1 rounded-lg transition-all ${revealStage >= 1 ? 'bg-emerald-600 text-white shadow' : 'bg-slate-800 text-slate-500'}`}>
-                      1. Map
-                    </span>
-                    <span className="text-slate-600">→</span>
-                    <span className={`px-2.5 py-1 rounded-lg transition-all ${revealStage >= 2 ? 'bg-emerald-600 text-white shadow' : 'bg-slate-800 text-slate-500'}`}>
-                      2. Guesses
-                    </span>
-                    <span className="text-slate-600">→</span>
-                    <span className={`px-2.5 py-1 rounded-lg transition-all ${revealStage >= 3 ? 'bg-emerald-600 text-white shadow' : 'bg-slate-800 text-slate-500'}`}>
-                      3. Star Location
-                    </span>
-                    <span className="text-slate-600">→</span>
-                    <span className={`px-2.5 py-1 rounded-lg transition-all ${revealStage >= 4 ? 'bg-amber-500 text-slate-950 font-black shadow-lg shadow-amber-500/30' : 'bg-slate-800 text-slate-500'}`}>
-                      4. Winner Zoom
-                    </span>
-                  </div>
-                </div>
-
-                {/* Full Stage World Map - Dynamically scales with viewport height and width */}
-                <div className="w-full h-[58vh] min-h-[460px] max-h-[820px] 2xl:h-[68vh] 2xl:max-h-[1050px] rounded-3xl overflow-hidden border-2 border-emerald-500/30 shadow-2xl relative">
-                  <WorldMap
-                    targetPin={{
-                      lat: targetLat,
-                      lng: targetLng,
-                      label: `${currentQuestion?.landmarkName || 'Target'}${currentQuestion?.locationName ? ` (${currentQuestion.locationName})` : ''}`
-                    }}
-                    playerPins={rankedMapPlayers}
-                    showTarget={revealStage >= 3}
-                    showPlayerPins={revealStage >= 2}
-                    showDistanceLines={revealStage >= 3}
-                    focusBounds={revealStage >= 4 ? focusBounds : null}
-                    className="w-full h-full"
-                  />
-                </div>
-
-                {/* Stage 4 Winner Celebratory Podium Card */}
-                {revealStage >= 4 && (
-                  <div className="bg-gradient-to-br from-amber-950/40 via-slate-900 to-purple-950/40 border-2 border-amber-500/60 rounded-3xl p-6 sm:p-8 shadow-2xl space-y-5 animate-in fade-in zoom-in-95 duration-500">
-                    <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-slate-800">
+                    {/* Right Column: Winner Showcase & Rankings Card */}
+                    <div className="lg:col-span-5 xl:col-span-4 h-full bg-gradient-to-br from-amber-950/40 via-slate-900 to-slate-900 border-2 border-amber-500/60 rounded-3xl p-5 sm:p-6 shadow-2xl flex flex-col justify-between overflow-y-auto animate-in fade-in zoom-in-95 duration-500 space-y-4">
                       <div>
-                        <span className="px-3 py-1 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300 text-xs font-black uppercase tracking-wider flex items-center gap-1.5 w-fit mb-2">
+                        <span className="px-3 py-1 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300 text-xs font-black uppercase tracking-wider flex items-center gap-1.5 w-fit mb-2.5">
                           <TrophyIcon className="w-4 h-4 text-amber-400" /> Closest Guess Winner
                         </span>
-                        <h3 className="text-3xl sm:text-4xl font-black text-white">
+                        <h3 className="text-2xl sm:text-3xl font-black text-white leading-tight">
                           {winnerPlayer ? `👑 ${winnerPlayer.name}` : 'No Guesses Placed'}
                         </h3>
                         {winnerPlayer && (
-                          <p className="text-sm font-semibold text-amber-300 mt-1">
-                            Only <span className="font-mono font-black text-amber-200 text-base">{winnerPlayer.distanceFormatted}</span> away from {currentQuestion?.landmarkName || 'the target'}!
+                          <p className="text-sm font-semibold text-amber-300 mt-1.5">
+                            Only <span className="font-mono font-black text-amber-200 text-base">{winnerPlayer.distanceFormatted}</span> away!
                           </p>
                         )}
                       </div>
 
                       {/* Landmark Mini Thumbnail */}
                       {currentQuestion?.imageUrl && (
-                        <div className="flex items-center gap-3 bg-slate-950/80 p-2 rounded-2xl border border-slate-800">
+                        <div className="flex items-center gap-3 bg-slate-950/80 p-2.5 rounded-2xl border border-slate-800">
                           <img
                             src={currentQuestion.imageUrl}
                             alt={currentQuestion.landmarkName || 'Landmark'}
-                            className="w-20 h-20 rounded-xl object-cover object-center"
+                            className="w-16 h-16 sm:w-20 sm:h-20 rounded-xl object-cover object-center shrink-0"
                           />
-                          <div className="pr-3 text-left">
-                            <p className="text-xs font-bold text-white">{currentQuestion.landmarkName || 'Target Location'}</p>
-                            <p className="text-[11px] text-slate-400">{currentQuestion.locationName || ''}</p>
+                          <div className="pr-2 text-left min-w-0">
+                            <p className="text-xs sm:text-sm font-bold text-white truncate">{currentQuestion.landmarkName || 'Target Location'}</p>
+                            <p className="text-[11px] text-slate-400 truncate">{currentQuestion.locationName || ''}</p>
                             <p className="text-[10px] font-mono text-emerald-400 mt-1">
                               {targetLat.toFixed(2)}°, {targetLng.toFixed(2)}°
                             </p>
                           </div>
                         </div>
                       )}
-                    </div>
 
-                    {/* Ranked Players Leaderboard Table */}
-                    {rankedMapPlayers.filter((p) => p.hasGuessed).length > 0 && (
-                      <div className="space-y-2">
-                        <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                          Closest Guesses Ranking:
-                        </span>
-                        <div className="flex flex-wrap gap-2.5">
-                          {rankedMapPlayers.filter((p) => p.hasGuessed).slice(0, 6).map((player, idx) => (
-                            <div
-                              key={player.id}
-                              className={`px-4 py-2 rounded-xl text-xs flex items-center gap-2 border font-bold shadow ${
-                                player.isWinner
-                                  ? 'bg-amber-500/20 border-amber-500/60 text-amber-200 ring-2 ring-amber-400/30'
-                                  : 'bg-slate-950 border-slate-800 text-slate-300'
-                              }`}
-                            >
-                              <span className="font-mono text-slate-500">#{idx + 1}</span>
-                              <span className="font-bold">{player.isWinner ? `👑 ${player.name}` : player.name}</span>
-                              <span className="font-mono text-amber-300">({player.distanceFormatted})</span>
-                            </div>
-                          ))}
+                      {/* Ranked Players Leaderboard Table */}
+                      {rankedMapPlayers.filter((p) => p.hasGuessed).length > 0 && (
+                        <div className="space-y-2">
+                          <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block">
+                            Closest Guesses:
+                          </span>
+                          <div className="flex flex-wrap gap-2 max-h-36 overflow-y-auto pr-1">
+                            {rankedMapPlayers.filter((p) => p.hasGuessed).slice(0, 6).map((player, idx) => (
+                              <div
+                                key={player.id}
+                                className={`px-3 py-1.5 rounded-xl text-xs flex items-center gap-1.5 border font-bold shadow ${
+                                  player.isWinner
+                                    ? 'bg-amber-500/20 border-amber-500/60 text-amber-200 ring-1 ring-amber-400/30'
+                                    : 'bg-slate-950 border-slate-800 text-slate-300'
+                                }`}
+                              >
+                                <span className="font-mono text-slate-500 text-[10px]">#{idx + 1}</span>
+                                <span className="font-bold truncate max-w-[90px]">{player.isWinner ? `👑 ${player.name}` : player.name}</span>
+                                <span className="font-mono text-amber-300 text-[11px]">({player.distanceFormatted})</span>
+                              </div>
+                            ))}
+                          </div>
                         </div>
-                      </div>
-                    )}
+                      )}
 
-                    {/* Secret Note / Host Trivia Explanation */}
-                    {currentQuestion?.secretNote && (
-                      <div className="p-3.5 rounded-2xl bg-slate-950/70 border border-slate-800 text-xs text-slate-300 leading-relaxed flex items-start gap-2.5">
-                        <SparklesIcon className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-                        <span><strong className="text-white">Did you know?</strong> {currentQuestion.secretNote}</span>
-                      </div>
-                    )}
+                      {/* Secret Note / Host Trivia Explanation */}
+                      {currentQuestion?.secretNote && (
+                        <div className="p-3 rounded-2xl bg-slate-950/70 border border-slate-800 text-xs text-slate-300 leading-relaxed flex items-start gap-2">
+                          <SparklesIcon className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
+                          <span className="line-clamp-2"><strong className="text-white">Trivia:</strong> {currentQuestion.secretNote}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  /* Stages 1, 2, 3: Full Width Expansive World Map */
+                  <div className="w-full h-[68vh] min-h-[440px] max-h-[82vh] rounded-3xl overflow-hidden border-2 border-emerald-500/30 shadow-2xl relative">
+                    <WorldMap
+                      targetPin={{
+                        lat: targetLat,
+                        lng: targetLng,
+                        label: `${currentQuestion?.landmarkName || 'Target'}${currentQuestion?.locationName ? ` (${currentQuestion.locationName})` : ''}`
+                      }}
+                      playerPins={rankedMapPlayers}
+                      showTarget={revealStage >= 3}
+                      showPlayerPins={revealStage >= 2}
+                      showDistanceLines={revealStage >= 3}
+                      focusBounds={null}
+                      className="w-full h-full"
+                    />
                   </div>
                 )}
               </div>

@@ -698,11 +698,14 @@ export default function PlayerJoin({ initialRoomCode = '' }) {
                       )}
 
                       {/* Interactive World Map with dynamic responsive height */}
-                      <div className={`w-full transition-all duration-300 rounded-2xl overflow-hidden border border-slate-800 shadow-inner relative ${
-                        isMapExpanded
-                          ? 'h-[72vh] min-h-[460px]'
-                          : 'h-[48vh] sm:h-[56vh] min-h-[320px] max-h-[640px]'
-                      }`}>
+                      <div
+                        className={`w-full transition-all duration-300 rounded-2xl overflow-hidden border border-slate-800 shadow-inner relative touch-none overscroll-none ${
+                          isMapExpanded
+                            ? 'h-[72vh] min-h-[460px]'
+                            : 'h-[48vh] sm:h-[56vh] min-h-[320px] max-h-[640px]'
+                        }`}
+                        style={{ touchAction: 'none', overscrollBehavior: 'none' }}
+                      >
                         <WorldMap
                           interactive={true}
                           selectedPin={selectedPin}

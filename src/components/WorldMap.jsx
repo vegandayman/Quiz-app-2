@@ -39,6 +39,9 @@ export default function WorldMap({
   const touchMovedRef = useRef(false);
   const animRef = useRef(null);
   const currentViewBoxRef = useRef({ x: 0, y: 0, width: 1000, height: 500 });
+  const startPanRef = useRef({ x: 0, y: 0 });
+  const isPanningRef = useRef(false);
+  const isDraggingPinRef = useRef(false);
 
   // Keep currentViewBoxRef in sync
   useEffect(() => {
@@ -227,111 +230,8 @@ export default function WorldMap({
     setIsDraggingPin(false);
   };
 
-  // Mouse wheel zoom
-  const handleWheel = (e) => {
-    e.preventDefault();
-    const zoomFactor = e.deltaY < 0 ? 0.85 : 1.15;
-    applyZoom(zoomFactor, e.clientX, e.clientY);
-  };
-
-  // Touch handlers for mobile pinch-to-zoom, pan, and tap/drag-to-adjust pin
-  const handleTouchStart = (e) => {
-    if (e.target.closest('.map-control-overlay')) return;
-
-    if (e.touches.length === 2) {
-      // Pinch zoom start
-      const touch1 = e.touches[0];
-      const touch2 = e.touches[1];
-      const dist = Math.hypot(touch1.clientX - touch2.clientX, touch1.clientY - touch2.clientY);
-      touchStartDistRef.current = dist;
-      touchMovedRef.current = true;
-      setIsDraggingPin(false);
-      setIsPanning(false);
-    } else if (e.touches.length === 1) {
-      const touch = e.touches[0];
-      const coords = getSvgCoordinates(touch.clientX, touch.clientY);
-
-      touchStartPosRef.current = { x: touch.clientX, y: touch.clientY };
-      touchMovedRef.current = false;
-      setStartPan({ x: touch.clientX, y: touch.clientY });
-
-      if (interactive && onPinSelect && isNearSelectedPin(coords)) {
-        setIsDraggingPin(true);
-        setIsPanning(false);
-      } else {
-        setIsPanning(true);
-        setIsDraggingPin(false);
-      }
-    }
-  };
-
-  const handleTouchMove = (e) => {
-    if (e.touches.length === 2 && touchStartDistRef.current) {
-      // Pinch zoom
-      const touch1 = e.touches[0];
-      const touch2 = e.touches[1];
-      const dist = Math.hypot(touch1.clientX - touch2.clientX, touch1.clientY - touch2.clientY);
-      const ratio = touchStartDistRef.current / dist;
-      touchStartDistRef.current = dist;
-      touchMovedRef.current = true;
-
-      const midX = (touch1.clientX + touch2.clientX) / 2;
-      const midY = (touch1.clientY + touch2.clientY) / 2;
-      applyZoom(Math.max(0.85, Math.min(1.15, ratio)), midX, midY);
-    } else if (e.touches.length === 1) {
-      const touch = e.touches[0];
-      const dx = touch.clientX - startPan.x;
-      const dy = touch.clientY - startPan.y;
-
-      if (Math.hypot(dx, dy) > 8) {
-        touchMovedRef.current = true;
-      }
-
-      if (isDraggingPin && interactive && onPinSelect) {
-        // Dragging existing pin to fine-tune
-        const coords = getSvgCoordinates(touch.clientX, touch.clientY);
-        if (coords) {
-          const geo = pointToCoords(coords.x, coords.y);
-          onPinSelect(geo.lat, geo.lng);
-        }
-      } else if (isPanning && containerRef.current) {
-        // Panning map
-        const rect = containerRef.current.getBoundingClientRect();
-        const scaleX = viewBox.width / rect.width;
-        const scaleY = viewBox.height / rect.height;
-
-        setViewBox((prev) => ({
-          ...prev,
-          x: Math.max(0, Math.min(1000 - prev.width, prev.x - dx * scaleX)),
-          y: Math.max(0, Math.min(500 - prev.height, prev.y - dy * scaleY))
-        }));
-        setStartPan({ x: touch.clientX, y: touch.clientY });
-      }
-    }
-  };
-
-  const handleTouchEnd = (e) => {
-    if (e.target.closest('.map-control-overlay')) return;
-
-    if (e.touches.length === 0) {
-      const wasTap = !touchMovedRef.current && !isDraggingPin;
-      setIsPanning(false);
-      setIsDraggingPin(false);
-      touchStartDistRef.current = null;
-
-      // Single tap to drop or reposition pin
-      if (wasTap && interactive && onPinSelect && touchStartPosRef.current) {
-        const coords = getSvgCoordinates(touchStartPosRef.current.x, touchStartPosRef.current.y);
-        if (coords) {
-          const geo = pointToCoords(coords.x, coords.y);
-          onPinSelect(geo.lat, geo.lng);
-        }
-      }
-    }
-  };
-
   // Zoom helper centered around a screen point (allows zooming down to 100x zoom!)
-  const applyZoom = (factor, screenX, screenY) => {
+  const applyZoom = useCallback((factor, screenX, screenY) => {
     setViewBox((prev) => {
       const minW = 10;
       const minH = 5;
@@ -349,14 +249,156 @@ export default function WorldMap({
         newY = prev.y + (prev.height - newHeight) * originY;
       }
 
-      return {
+      const nextBox = {
         x: Math.max(0, Math.min(1000 - newWidth, newX)),
         y: Math.max(0, Math.min(500 - newHeight, newY)),
         width: newWidth,
         height: newHeight
       };
+      currentViewBoxRef.current = nextBox;
+      return nextBox;
     });
+  }, []);
+
+  // Mouse wheel zoom
+  const handleWheel = (e) => {
+    e.preventDefault();
+    const zoomFactor = e.deltaY < 0 ? 0.85 : 1.15;
+    applyZoom(zoomFactor, e.clientX, e.clientY);
   };
+
+  // Native non-passive touch event listeners to completely isolate map touches from the browser
+  // (Prevents pull-to-refresh, page scrolling, and viewport rubber-banding on iOS Safari & Android Chrome)
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    const onTouchStart = (e) => {
+      if (e.target.closest('.map-control-overlay')) return;
+      if (e.cancelable) {
+        e.preventDefault();
+      }
+
+      if (e.touches.length === 2) {
+        // Pinch zoom start
+        const touch1 = e.touches[0];
+        const touch2 = e.touches[1];
+        touchStartDistRef.current = Math.hypot(touch1.clientX - touch2.clientX, touch1.clientY - touch2.clientY);
+        touchMovedRef.current = true;
+        isDraggingPinRef.current = false;
+        isPanningRef.current = false;
+        setIsDraggingPin(false);
+        setIsPanning(false);
+      } else if (e.touches.length === 1) {
+        const touch = e.touches[0];
+        const coords = getSvgCoordinates(touch.clientX, touch.clientY);
+
+        touchStartPosRef.current = { x: touch.clientX, y: touch.clientY };
+        touchMovedRef.current = false;
+        startPanRef.current = { x: touch.clientX, y: touch.clientY };
+        setStartPan({ x: touch.clientX, y: touch.clientY });
+
+        if (interactive && onPinSelect && isNearSelectedPin(coords)) {
+          isDraggingPinRef.current = true;
+          isPanningRef.current = false;
+          setIsDraggingPin(true);
+          setIsPanning(false);
+        } else {
+          isPanningRef.current = true;
+          isDraggingPinRef.current = false;
+          setIsPanning(true);
+          setIsDraggingPin(false);
+        }
+      }
+    };
+
+    const onTouchMove = (e) => {
+      if (e.target.closest('.map-control-overlay')) return;
+      if (e.cancelable) {
+        e.preventDefault();
+      }
+
+      if (e.touches.length === 2 && touchStartDistRef.current) {
+        const touch1 = e.touches[0];
+        const touch2 = e.touches[1];
+        const dist = Math.hypot(touch1.clientX - touch2.clientX, touch1.clientY - touch2.clientY);
+        const ratio = touchStartDistRef.current / dist;
+        touchStartDistRef.current = dist;
+        touchMovedRef.current = true;
+
+        const midX = (touch1.clientX + touch2.clientX) / 2;
+        const midY = (touch1.clientY + touch2.clientY) / 2;
+        applyZoom(Math.max(0.85, Math.min(1.15, ratio)), midX, midY);
+      } else if (e.touches.length === 1) {
+        const touch = e.touches[0];
+        const dx = touch.clientX - startPanRef.current.x;
+        const dy = touch.clientY - startPanRef.current.y;
+
+        if (Math.hypot(dx, dy) > 8) {
+          touchMovedRef.current = true;
+        }
+
+        if (isDraggingPinRef.current && interactive && onPinSelect) {
+          // Dragging existing pin to fine-tune
+          const coords = getSvgCoordinates(touch.clientX, touch.clientY);
+          if (coords) {
+            const geo = pointToCoords(coords.x, coords.y);
+            onPinSelect(geo.lat, geo.lng);
+          }
+        } else if (isPanningRef.current && containerRef.current) {
+          // Panning map
+          const rect = containerRef.current.getBoundingClientRect();
+          const cur = currentViewBoxRef.current;
+          const scaleX = cur.width / rect.width;
+          const scaleY = cur.height / rect.height;
+
+          const nextBox = {
+            ...cur,
+            x: Math.max(0, Math.min(1000 - cur.width, cur.x - dx * scaleX)),
+            y: Math.max(0, Math.min(500 - cur.height, cur.y - dy * scaleY))
+          };
+          setViewBox(nextBox);
+          currentViewBoxRef.current = nextBox;
+          startPanRef.current = { x: touch.clientX, y: touch.clientY };
+          setStartPan({ x: touch.clientX, y: touch.clientY });
+        }
+      }
+    };
+
+    const onTouchEnd = (e) => {
+      if (e.target.closest('.map-control-overlay')) return;
+
+      if (e.touches.length === 0) {
+        const wasTap = !touchMovedRef.current && !isDraggingPinRef.current;
+        isPanningRef.current = false;
+        isDraggingPinRef.current = false;
+        setIsPanning(false);
+        setIsDraggingPin(false);
+        touchStartDistRef.current = null;
+
+        // Single tap to drop or reposition pin
+        if (wasTap && interactive && onPinSelect && touchStartPosRef.current) {
+          const coords = getSvgCoordinates(touchStartPosRef.current.x, touchStartPosRef.current.y);
+          if (coords) {
+            const geo = pointToCoords(coords.x, coords.y);
+            onPinSelect(geo.lat, geo.lng);
+          }
+        }
+      }
+    };
+
+    el.addEventListener('touchstart', onTouchStart, { passive: false });
+    el.addEventListener('touchmove', onTouchMove, { passive: false });
+    el.addEventListener('touchend', onTouchEnd, { passive: false });
+    el.addEventListener('touchcancel', onTouchEnd, { passive: false });
+
+    return () => {
+      el.removeEventListener('touchstart', onTouchStart);
+      el.removeEventListener('touchmove', onTouchMove);
+      el.removeEventListener('touchend', onTouchEnd);
+      el.removeEventListener('touchcancel', onTouchEnd);
+    };
+  }, [interactive, onPinSelect, getSvgCoordinates, applyZoom]);
 
   const handleDoubleClick = (e) => {
     if (e.target.closest('.map-control-overlay')) return;
@@ -370,16 +412,18 @@ export default function WorldMap({
   return (
     <div
       ref={containerRef}
-      className={`relative select-none overflow-hidden rounded-2xl border border-slate-800 shadow-2xl ${className}`}
-      style={{ backgroundColor: oceanColor }}
+      className={`relative select-none overflow-hidden rounded-2xl border border-slate-800 shadow-2xl touch-none overscroll-none ${className}`}
+      style={{
+        backgroundColor: oceanColor,
+        touchAction: 'none',
+        overscrollBehavior: 'none',
+        WebkitUserSelect: 'none'
+      }}
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
       onMouseLeave={handleMouseUp}
       onWheel={handleWheel}
-      onTouchStart={handleTouchStart}
-      onTouchMove={handleTouchMove}
-      onTouchEnd={handleTouchEnd}
     >
       <svg
         ref={svgRef}
