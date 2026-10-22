@@ -670,21 +670,17 @@ export default function LiveDisplay({ roomCode: initialRoomCode = '' }) {
         <main className={`my-auto w-full mx-auto flex flex-col items-center transition-all duration-300 ${
           isClosestPin || isPaSparet ? 'max-w-7xl 2xl:max-w-[95vw] px-2 sm:px-6' : 'max-w-5xl'
         }`}>
-          <div className={`w-full bg-slate-900/90 border border-slate-800 rounded-3xl text-center shadow-2xl transition-all ${
-            (isClosestPin || isPaSparet) && isReveal ? 'p-4 sm:p-6 mb-4' : 'p-6 sm:p-8 mb-6'
-          }`}>
-            {isPaSparet && !isReveal && (
-              <div className="flex justify-center mb-2">
-                <span className="px-4 py-1 rounded-full bg-amber-500/20 border border-amber-500/50 text-amber-300 font-mono text-xs font-black uppercase tracking-wider flex items-center gap-2 shadow-lg">
-                  <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
-                  Active Tier: {activeTier} Points {nextDropSec > 0 ? `· Drops to ${activeTier - 2} pts in ${nextDropSec}s` : '· Final Stop!'}
-                </span>
-              </div>
-            )}
-            <h2 className="text-2xl sm:text-4xl font-black tracking-tight text-white leading-snug">
-              {currentQuestion?.question || 'Where are we heading? / Vart är vi på väg?'}
-            </h2>
-          </div>
+          {!(isPaSparet && isReveal) && (
+            <div className={`w-full bg-slate-900/90 border border-slate-800 rounded-3xl text-center shadow-2xl transition-all ${
+              isPaSparet
+                ? 'py-3.5 px-6 mb-4'
+                : (isClosestPin) && isReveal ? 'p-4 sm:p-6 mb-4' : 'p-6 sm:p-8 mb-6'
+            }`}>
+              <h2 className={`${isPaSparet ? 'text-xl sm:text-2xl font-bold' : 'text-2xl sm:text-4xl font-black'} tracking-tight text-white leading-snug`}>
+                {currentQuestion?.question || (isPaSparet ? 'Vart är vi på väg? / Where are we heading?' : 'Question')}
+              </h2>
+            </div>
+          )}
 
           {/* Conditional Rendering: Closest Wins vs Free-Text vs Multiple-Choice */}
           {isClosestPin ? (
@@ -932,24 +928,12 @@ export default function LiveDisplay({ roomCode: initialRoomCode = '' }) {
             )
           ) : isPaSparet ? (
             !isReveal ? (
-              /* Active På Spåret Train Journey Stage */
-              <div className="w-full space-y-4">
-                <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-stretch">
-                  {/* Left Column: Train Cab View Video (7 cols) */}
-                  <div className="lg:col-span-7 bg-slate-900/90 border-2 border-amber-500/40 rounded-3xl p-4 shadow-2xl flex flex-col justify-between">
-                    <div className="flex items-center justify-between pb-3 px-1 border-b border-slate-800 mb-3">
-                      <div className="flex items-center gap-2">
-                        <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse" />
-                        <span className="text-xs font-mono font-bold tracking-wider text-slate-300 uppercase">
-                          CAB VIEW · LIVE TRACK CAM
-                        </span>
-                      </div>
-                      <span className="text-xs font-mono text-amber-400 bg-amber-950/70 border border-amber-800/80 px-2 py-0.5 rounded">
-                        Elapsed: {elapsedSeconds}s / {currentQuestion?.duration || 90}s
-                      </span>
-                    </div>
-
-                    <div className="relative w-full aspect-video rounded-2xl overflow-hidden bg-black border border-slate-800 shadow-inner">
+              /* Active På Spåret Train Journey Stage: Video & Clues ONLY */
+              <div className="w-full">
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+                  {/* Left Column: Train Video (7 cols) */}
+                  <div className="lg:col-span-7 flex flex-col justify-center">
+                    <div className="relative w-full aspect-video rounded-3xl overflow-hidden bg-black border-2 border-slate-800 shadow-2xl">
                       {extractYouTubeId(currentQuestion?.youtubeUrl) ? (
                         <iframe
                           className="w-full h-full object-cover"
@@ -959,110 +943,57 @@ export default function LiveDisplay({ roomCode: initialRoomCode = '' }) {
                           allowFullScreen
                         />
                       ) : (
-                        <div className="w-full h-full flex flex-col items-center justify-center text-center p-6 bg-gradient-to-br from-slate-950 via-amber-950/20 to-slate-950">
-                          <TrainIcon className="w-16 h-16 text-amber-400/80 mb-3 animate-pulse" />
-                          <h4 className="text-lg font-bold text-white mb-1">Train In Transit</h4>
-                          <p className="text-xs text-slate-400 max-w-sm">
-                            Scenic rail route underway. Destination mystery clues are unlocking on the right!
+                        <div className="w-full h-full flex flex-col items-center justify-center text-center p-8 bg-slate-950">
+                          <TrainIcon className="w-16 h-16 text-amber-400 mb-3 opacity-80" />
+                          <h4 className="text-xl font-bold text-white mb-1">Train In Transit</h4>
+                          <p className="text-sm text-slate-400 max-w-sm">
+                            Scenic rail route underway
                           </p>
                         </div>
                       )}
                     </div>
-
-                    {/* Emergency Brake Alert Ticker */}
-                    <div className="mt-4 pt-3 border-t border-slate-800 flex flex-wrap items-center justify-between gap-2">
-                      <div className="flex items-center gap-2">
-                        <span className="px-2.5 py-1 rounded-lg bg-red-600/30 border border-red-500/50 text-red-300 font-mono text-xs font-bold uppercase tracking-wider flex items-center gap-1.5">
-                          <span className="w-2 h-2 rounded-full bg-red-400 animate-ping" />
-                          Emergency Brakes
-                        </span>
-                        <span className="text-xs font-bold text-slate-300">
-                          {paSparetSubmissions.length} of {players.length} players locked in
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-1.5 overflow-x-auto max-w-md py-1">
-                        {paSparetSubmissions.map((sub, idx) => (
-                          <span
-                            key={idx}
-                            className="px-2.5 py-1 rounded-lg bg-amber-500/20 border border-amber-500/40 text-amber-200 text-xs font-bold whitespace-nowrap flex items-center gap-1"
-                          >
-                            <span>🛑 {sub.playerName}</span>
-                            <span className="text-[10px] font-mono text-amber-400">({sub.lockedTier}p)</span>
-                          </span>
-                        ))}
-                      </div>
-                    </div>
                   </div>
 
-                  {/* Right Column: Progressive 5-Tier Clues Ladder (5 cols) */}
-                  <div className="lg:col-span-5 flex flex-col justify-between space-y-2.5">
-                    <div className="flex items-center justify-between px-1">
-                      <span className="text-xs font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
-                        <SparklesIcon className="w-4 h-4 text-amber-400" />
-                        5 Progressive Clues Ladder
-                      </span>
-                      <span className="text-xs font-mono text-slate-400">
-                        Higher speed = higher score
-                      </span>
-                    </div>
-
+                  {/* Right Column: Progressive Clues ONLY (5 cols) */}
+                  <div className="lg:col-span-5 flex flex-col justify-between space-y-3">
                     {(currentQuestion?.clues || []).map((clue, idx) => {
                       const isUnlocked = elapsedSeconds >= clue.timeSec;
                       const isCurrentTier = activeTier === clue.tier;
-                      const secondsUntilUnlock = Math.max(0, clue.timeSec - elapsedSeconds);
 
                       return (
                         <div
                           key={idx}
-                          className={`p-3.5 sm:p-4 rounded-2xl border-2 transition-all duration-300 ${
+                          className={`p-4 rounded-2xl border transition-all duration-300 flex items-center gap-4 ${
                             isCurrentTier
-                              ? 'bg-amber-950/70 border-amber-400 shadow-lg shadow-amber-500/20 ring-2 ring-amber-400/40'
+                              ? 'bg-amber-950/60 border-amber-400/80 shadow-lg shadow-amber-500/10 ring-1 ring-amber-400/30'
                               : isUnlocked
-                                ? 'bg-slate-900/90 border-amber-500/40 shadow'
-                                : 'bg-slate-950/80 border-slate-800 opacity-60'
+                                ? 'bg-slate-900/90 border-slate-700/80'
+                                : 'bg-slate-950/60 border-slate-800/60 opacity-40'
                           }`}
                         >
-                          <div className="flex items-center justify-between gap-2 mb-1.5">
-                            <span className={`px-2 py-0.5 rounded text-xs font-mono font-bold tracking-wider flex items-center gap-1 ${
+                          <span
+                            className={`px-3 py-1.5 rounded-xl font-mono text-sm font-black tracking-wider shrink-0 ${
                               isCurrentTier
-                                ? 'bg-amber-400 text-slate-950 font-black'
+                                ? 'bg-amber-400 text-slate-950 shadow'
                                 : isUnlocked
                                   ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
-                                  : 'bg-slate-800 text-slate-400 border border-slate-700'
-                            }`}>
-                              {clue.tier} POINTS {isCurrentTier && '· ACTIVE'}
-                            </span>
+                                  : 'bg-slate-800 text-slate-500 border border-slate-700/60'
+                            }`}
+                          >
+                            {clue.tier}p
+                          </span>
 
-                            {!isUnlocked ? (
-                              <span className="text-[11px] font-mono text-amber-300/80">
-                                Unlocks in {secondsUntilUnlock}s
-                              </span>
+                          <div className="flex-1 min-w-0">
+                            {isUnlocked ? (
+                              <p className="text-base sm:text-lg font-semibold text-white leading-snug">
+                                {clue.text}
+                              </p>
                             ) : (
-                              <span className="text-[11px] font-mono text-emerald-400">
-                                Unlocked ✓
+                              <span className="text-sm font-mono text-slate-600 tracking-wider">
+                                • • •
                               </span>
                             )}
                           </div>
-
-                          {isUnlocked ? (
-                            <p className="text-sm sm:text-base font-semibold text-white leading-relaxed">
-                              {clue.text}
-                            </p>
-                          ) : (
-                            <div className="space-y-1.5">
-                              <p className="text-xs font-mono text-slate-500 select-none blur-[3px]">
-                                {clue.text || 'Upcoming destination clue will be revealed soon...'}
-                              </p>
-                              <div className="w-full bg-slate-800 h-1 rounded-full overflow-hidden">
-                                <div
-                                  className="bg-amber-500 h-full transition-all duration-500"
-                                  style={{
-                                    width: `${Math.min(100, Math.max(0, ((elapsedSeconds - (clue.timeSec - 20)) / 20) * 100))}%`
-                                  }}
-                                />
-                              </div>
-                            </div>
-                          )}
                         </div>
                       );
                     })}
@@ -1070,99 +1001,24 @@ export default function LiveDisplay({ roomCode: initialRoomCode = '' }) {
                 </div>
               </div>
             ) : (
-              /* Revealed På Spåret Stage */
-              <div className="w-full space-y-6">
-                {/* Grand Destination Reveal Card */}
-                <div className="w-full bg-gradient-to-b from-amber-950/60 via-slate-900 to-slate-900 border-2 border-amber-500 rounded-3xl p-8 sm:p-12 text-center shadow-2xl shadow-amber-950/50 relative overflow-hidden">
-                  <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-amber-500/20 border border-amber-500/50 text-amber-300 text-xs font-black uppercase tracking-wider mb-4">
-                    <TrainIcon className="w-4 h-4 text-amber-400" />
-                    <span>Train Destination Arrived</span>
-                  </div>
-                  <h3 className="text-4xl sm:text-6xl font-black text-transparent bg-clip-text bg-gradient-to-r from-amber-200 via-yellow-100 to-amber-300 tracking-tight">
-                    {currentQuestion.destination || currentQuestion.correctAnswer || 'Destination'}
-                  </h3>
-                  {currentQuestion.acceptedAnswers && (
-                    <p className="text-xs sm:text-sm text-amber-300/80 mt-2 font-medium">
-                      Accepted answers:{' '}
+              /* Revealed På Spåret Stage: Destination Answer ONLY */
+              <div className="w-full my-auto flex flex-col items-center justify-center py-12 sm:py-24 text-center animate-in zoom-in-95 duration-300">
+                <span className="text-sm sm:text-base font-mono uppercase tracking-[0.3em] text-amber-400/90 font-bold mb-4">
+                  Destination
+                </span>
+                <h1 className="text-5xl sm:text-7xl md:text-8xl lg:text-9xl font-black text-transparent bg-clip-text bg-gradient-to-r from-amber-200 via-amber-100 to-yellow-300 tracking-tight drop-shadow-[0_15px_35px_rgba(245,158,11,0.25)] leading-tight">
+                  {currentQuestion.destination || currentQuestion.correctAnswer || 'Destination'}
+                </h1>
+                {currentQuestion.acceptedAnswers && (
+                  <p className="text-sm sm:text-base text-slate-400 mt-5 font-medium max-w-xl mx-auto">
+                    Also accepted:{' '}
+                    <span className="text-amber-200/90 font-semibold">
                       {Array.isArray(currentQuestion.acceptedAnswers)
                         ? currentQuestion.acceptedAnswers.join(', ')
                         : currentQuestion.acceptedAnswers}
-                    </p>
-                  )}
-                  {currentQuestion.secretNote && (
-                    <div className="mt-4 p-3 rounded-2xl bg-slate-950/60 border border-amber-500/30 max-w-2xl mx-auto text-xs text-slate-300 text-left flex items-start gap-2.5">
-                      <SparklesIcon className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-                      <span><strong className="text-white">Did you know?</strong> {currentQuestion.secretNote}</span>
-                    </div>
-                  )}
-                </div>
-
-                {/* 5 Clues Recap */}
-                <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-6 shadow-xl">
-                  <span className="text-xs font-bold uppercase tracking-wider text-slate-400 block mb-3">
-                    Journey Clues Recap:
-                  </span>
-                  <div className="grid grid-cols-1 sm:grid-cols-5 gap-3">
-                    {(currentQuestion?.clues || []).map((clue, idx) => (
-                      <div key={idx} className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 flex flex-col justify-between">
-                        <span className="px-2 py-0.5 rounded bg-amber-500/20 border border-amber-500/40 text-amber-300 font-mono text-xs font-bold self-start mb-2">
-                          {clue.tier} PTS
-                        </span>
-                        <p className="text-xs text-slate-300 font-medium leading-relaxed">
-                          {clue.text}
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Emergency Brakes / Player Scoring Breakdown */}
-                <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
-                  <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-                    <span className="text-xs font-bold uppercase tracking-wider text-slate-300">
-                      Emergency Brake Results ({paSparetSubmissions.filter((s) => s.isCorrect).length} of {paSparetSubmissions.length} Correct)
                     </span>
-                    <span className="text-xs font-mono text-amber-400">
-                      Scored by tier pulled
-                    </span>
-                  </div>
-
-                  {paSparetSubmissions.length === 0 ? (
-                    <p className="text-xs text-slate-500 italic text-center py-4">
-                      No players pulled the emergency brake for this question.
-                    </p>
-                  ) : (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                      {paSparetSubmissions
-                        .sort((a, b) => (b.pointsAwarded - a.pointsAwarded))
-                        .map((sub, idx) => (
-                          <div
-                            key={idx}
-                            className={`p-3 rounded-2xl border flex items-center justify-between gap-3 ${
-                              sub.isCorrect
-                                ? 'bg-emerald-950/40 border-emerald-500/50 text-white'
-                                : 'bg-rose-950/40 border-rose-500/50 text-rose-200'
-                            }`}
-                          >
-                            <div className="truncate">
-                              <p className="text-xs font-bold truncate">{sub.playerName}</p>
-                              <p className="text-[11px] font-mono text-slate-300 truncate">"{sub.text}"</p>
-                            </div>
-                            <div className="text-right shrink-0">
-                              <span className={`px-2.5 py-1 rounded-xl font-mono text-xs font-black ${
-                                sub.isCorrect ? 'bg-emerald-500 text-slate-950' : 'bg-slate-800 text-slate-400'
-                              }`}>
-                                {sub.isCorrect ? `+${sub.pointsAwarded} pts` : '0 pts'}
-                              </span>
-                              <p className="text-[10px] font-mono text-slate-400 mt-0.5">
-                                Locked at {sub.lockedTier}p
-                              </p>
-                            </div>
-                          </div>
-                        ))}
-                    </div>
-                  )}
-                </div>
+                  </p>
+                )}
               </div>
             )
           ) : (
