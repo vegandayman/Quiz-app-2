@@ -1,9 +1,22 @@
 import React, { useState, useRef } from 'react';
 import { checkFreeInputAnswer } from '../utils/answerMatcher.js';
 import { LANDMARK_PRESETS } from '../utils/geoDistance.js';
+import { PA_SPARET_PRESETS, extractYouTubeId } from '../data/paSparetPresets.js';
 import WorldMap from './WorldMap.jsx';
 
 // Clean inline SVGs (zero external dependencies)
+const TrainIcon = ({ className = 'w-4 h-4' }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect width="16" height="16" x="4" y="3" rx="2" />
+    <path d="M4 11h16" />
+    <path d="M12 3v8" />
+    <path d="m8 19-2 3" />
+    <path d="m18 22-2-3" />
+    <circle cx="8" cy="15" r="1" fill="currentColor" />
+    <circle cx="16" cy="15" r="1" fill="currentColor" />
+  </svg>
+);
+
 const MapPinIcon = ({ className = 'w-4 h-4' }) => (
   <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z" />
@@ -216,11 +229,12 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
             question: q.question || 'Where in the world was this photo taken?',
             landmarkName: q.landmarkName || 'Eiffel Tower',
             locationName: q.locationName || 'Paris, France',
-            lat: q.lat !== undefined ? Number(q.lat) : 48.8584,
-            lng: q.lng !== undefined ? Number(q.lng) : 2.2945,
-            unit: q.unit || 'km',
-            imageUrl: q.imageUrl || 'https://images.unsplash.com/photo-1511739001486-6bfe10ce785f?auto=format&fit=crop&w=1200&q=80',
-            points: q.points !== undefined && q.points !== '' ? Number(q.points) : 1,
+            lat: q.lat !== undefined && !isNaN(Number(q.lat)) ? Number(q.lat) : 48.8584,
+            lng: q.lng !== undefined && !isNaN(Number(q.lng)) ? Number(q.lng) : 2.2945,
+            unit: q.unit === 'mi' || q.unit === 'miles' ? 'mi' : 'km',
+            imageUrl: q.imageUrl !== undefined ? q.imageUrl : 'https://images.unsplash.com/photo-1511739001486-6bfe10ce785f?auto=format&fit=crop&w=1200&q=80',
+            points: q.points !== undefined && q.points !== '' && !isNaN(Number(q.points)) ? Number(q.points) : 1,
+            secretNote: q.secretNote !== undefined ? q.secretNote : '',
             timeLimit: q.timeLimit || 60,
             showScoreboardAfterQuestion: q.showScoreboardAfterQuestion !== undefined ? Boolean(q.showScoreboardAfterQuestion) : initialShowScoreboardAfterQuestion
           };
@@ -233,6 +247,24 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
             acceptedAnswers: q.acceptedAnswers || '',
             points: q.points !== undefined && q.points !== '' ? Number(q.points) : 1,
             timeLimit: q.timeLimit || 60,
+            showScoreboardAfterQuestion: q.showScoreboardAfterQuestion !== undefined ? Boolean(q.showScoreboardAfterQuestion) : initialShowScoreboardAfterQuestion
+          };
+        }
+        if (q.type === 'pa_sparet') {
+          const defaultPreset = PA_SPARET_PRESETS[0];
+          return {
+            ...q,
+            type: 'pa_sparet',
+            question: q.question || 'Where are we heading? / Vart är vi på väg?',
+            destination: q.destination || q.correctAnswer || defaultPreset.destination,
+            acceptedAnswers: q.acceptedAnswers || defaultPreset.acceptedAnswers,
+            youtubeUrl: q.youtubeUrl || defaultPreset.youtubeUrl,
+            videoStartTime: q.videoStartTime !== undefined && !isNaN(Number(q.videoStartTime)) ? Number(q.videoStartTime) : defaultPreset.videoStartTime,
+            duration: q.duration && !isNaN(Number(q.duration)) ? Number(q.duration) : 90,
+            clues: Array.isArray(q.clues) && q.clues.length === 5 ? q.clues : JSON.parse(JSON.stringify(defaultPreset.clues)),
+            points: 10,
+            secretNote: q.secretNote !== undefined ? q.secretNote : defaultPreset.secretNote,
+            timeLimit: q.timeLimit || q.duration || 90,
             showScoreboardAfterQuestion: q.showScoreboardAfterQuestion !== undefined ? Boolean(q.showScoreboardAfterQuestion) : initialShowScoreboardAfterQuestion
           };
         }
@@ -433,7 +465,34 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
     showNotification(`New Closest-Wins Question added after slide #${activeIdx + 1}!`);
   };
 
-  // Switch active slide question type (between Multiple Choice, Free Input, and Closest Wins)
+  // Add new På Spåret train journey question slide
+  const handleAddPaSparet = (preset = PA_SPARET_PRESETS[0]) => {
+    const newPaSparet = {
+      id: Date.now(),
+      type: 'pa_sparet',
+      question: 'Where are we heading? / Vart är vi på väg?',
+      destination: preset.destination,
+      acceptedAnswers: preset.acceptedAnswers,
+      youtubeUrl: preset.youtubeUrl,
+      videoStartTime: preset.videoStartTime !== undefined ? preset.videoStartTime : 20,
+      duration: preset.duration || 90,
+      clues: JSON.parse(JSON.stringify(preset.clues)),
+      points: 10,
+      secretNote: preset.secretNote,
+      timeLimit: preset.duration || 90,
+      showScoreboardAfterQuestion: showScoreboardAfterQuestion
+    };
+    const endScreenIndex = questions.findIndex((q) => q.type === 'end');
+    const maxInsertIndex = endScreenIndex !== -1 ? endScreenIndex : questions.length;
+    const insertIndex = activeIdx >= 0 && activeIdx < maxInsertIndex ? activeIdx + 1 : maxInsertIndex;
+    const updated = [...questions];
+    updated.splice(insertIndex, 0, newPaSparet);
+    setQuestions(updated);
+    setActiveIdx(insertIndex);
+    showNotification(`New På Spåret Question added after slide #${activeIdx + 1}!`);
+  };
+
+  // Switch active slide question type (between Multiple Choice, Free Input, Closest Wins, and På Spåret)
   const handleSwitchQuestionType = (newType) => {
     if (!activeQ || activeQ.type === 'splash' || activeQ.type === 'end' || activeQ.type === newType) return;
     const updated = [...questions];
@@ -453,7 +512,7 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
       };
       showNotification('Converted to Closest-Wins Geography Question (World Map pin)');
     } else if (newType === 'free_input') {
-      const defaultCorrectText = activeQ.options?.[activeQ.correctIndex] || activeQ.landmarkName || '';
+      const defaultCorrectText = activeQ.options?.[activeQ.correctIndex] || activeQ.destination || activeQ.landmarkName || '';
       updated[activeIdx] = {
         ...activeQ,
         type: 'free_input',
@@ -461,6 +520,22 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
         acceptedAnswers: activeQ.acceptedAnswers || ''
       };
       showNotification('Converted to Free-Input Question (players type their answer)');
+    } else if (newType === 'pa_sparet') {
+      const preset = PA_SPARET_PRESETS[0];
+      updated[activeIdx] = {
+        ...activeQ,
+        type: 'pa_sparet',
+        question: 'Where are we heading? / Vart är vi på väg?',
+        destination: activeQ.destination || activeQ.correctAnswer || activeQ.landmarkName || preset.destination,
+        acceptedAnswers: activeQ.acceptedAnswers || preset.acceptedAnswers,
+        youtubeUrl: activeQ.youtubeUrl || preset.youtubeUrl,
+        videoStartTime: activeQ.videoStartTime !== undefined ? Number(activeQ.videoStartTime) : preset.videoStartTime,
+        duration: activeQ.duration || 90,
+        clues: Array.isArray(activeQ.clues) && activeQ.clues.length === 5 ? activeQ.clues : JSON.parse(JSON.stringify(preset.clues)),
+        points: 10,
+        timeLimit: 90
+      };
+      showNotification('Converted to På Spåret progressive train clues (10-8-6-4-2 pts)');
     } else {
       updated[activeIdx] = {
         ...activeQ,
@@ -588,14 +663,115 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
     showNotification(`Applied preset "${preset.name}"!`);
   };
 
-  // Export Quiz as JSON (including splash screens, points & scoreboard toggle)
+  // Export Quiz as JSON (including closest pin, free input, splash screens, points & scoreboard toggle)
   const handleExportJSON = () => {
     const exportData = {
       title: quizTitle,
       showScoreboardAfterQuestion: showScoreboardAfterQuestion,
-      version: '1.3',
+      version: '1.4',
       exportedAt: new Date().toISOString(),
-      questions: questions
+      questions: questions.map((q, idx) => {
+        if (q.type === 'end') {
+          return {
+            id: q.id || 'final-end-screen',
+            type: 'end',
+            title: q.title || DEFAULT_END_SCREEN.title,
+            subtitle: q.subtitle || DEFAULT_END_SCREEN.subtitle,
+            showFullLeaderboard: q.showFullLeaderboard !== undefined ? Boolean(q.showFullLeaderboard) : true,
+            enableConfetti: q.enableConfetti !== undefined ? Boolean(q.enableConfetti) : true,
+            isPermanent: true
+          };
+        }
+
+        if (q.type === 'splash') {
+          return {
+            id: q.id || idx + 1,
+            type: 'splash',
+            title: q.title || 'Splash Announcement',
+            subtitle: q.subtitle || '',
+            imageUrl: q.imageUrl || ''
+          };
+        }
+
+        if (q.type === 'closest_pin') {
+          return {
+            id: q.id || idx + 1,
+            type: 'closest_pin',
+            question: q.question || 'Where in the world was this photo taken?',
+            landmarkName: q.landmarkName || '',
+            locationName: q.locationName || '',
+            lat: q.lat !== undefined && !isNaN(Number(q.lat)) ? Number(q.lat) : 48.8584,
+            lng: q.lng !== undefined && !isNaN(Number(q.lng)) ? Number(q.lng) : 2.2945,
+            unit: q.unit === 'mi' || q.unit === 'miles' ? 'mi' : 'km',
+            imageUrl: q.imageUrl || '',
+            points: typeof q.points === 'number' && !isNaN(q.points)
+              ? q.points
+              : (q.points !== undefined && q.points !== '' && !isNaN(Number(q.points)) ? Number(q.points) : 1),
+            secretNote: q.secretNote || '',
+            timeLimit: q.timeLimit ? Number(q.timeLimit) : 60,
+            showScoreboardAfterQuestion: q.showScoreboardAfterQuestion !== undefined
+              ? Boolean(q.showScoreboardAfterQuestion)
+              : Boolean(showScoreboardAfterQuestion)
+          };
+        }
+
+        if (q.type === 'free_input') {
+          return {
+            id: q.id || idx + 1,
+            type: 'free_input',
+            question: q.question || `Question ${idx + 1}`,
+            correctAnswer: q.correctAnswer || '',
+            acceptedAnswers: q.acceptedAnswers || '',
+            imageUrl: q.imageUrl || '',
+            points: typeof q.points === 'number' && !isNaN(q.points)
+              ? q.points
+              : (q.points !== undefined && q.points !== '' && !isNaN(Number(q.points)) ? Number(q.points) : 1),
+            secretNote: q.secretNote || '',
+            timeLimit: q.timeLimit ? Number(q.timeLimit) : 60,
+            showScoreboardAfterQuestion: q.showScoreboardAfterQuestion !== undefined
+              ? Boolean(q.showScoreboardAfterQuestion)
+              : Boolean(showScoreboardAfterQuestion)
+          };
+        }
+
+        if (q.type === 'pa_sparet') {
+          return {
+            id: q.id || idx + 1,
+            type: 'pa_sparet',
+            question: q.question || 'Where are we heading? / Vart är vi på väg?',
+            destination: q.destination || '',
+            acceptedAnswers: q.acceptedAnswers || '',
+            youtubeUrl: q.youtubeUrl || '',
+            videoStartTime: q.videoStartTime !== undefined && !isNaN(Number(q.videoStartTime)) ? Number(q.videoStartTime) : 0,
+            duration: q.duration ? Number(q.duration) : 90,
+            clues: Array.isArray(q.clues) ? q.clues : [],
+            imageUrl: q.imageUrl || '',
+            points: 10,
+            secretNote: q.secretNote || '',
+            timeLimit: q.timeLimit ? Number(q.timeLimit) : 90,
+            showScoreboardAfterQuestion: q.showScoreboardAfterQuestion !== undefined
+              ? Boolean(q.showScoreboardAfterQuestion)
+              : Boolean(showScoreboardAfterQuestion)
+          };
+        }
+
+        return {
+          id: q.id || idx + 1,
+          type: 'question',
+          question: q.question || `Question ${idx + 1}`,
+          options: Array.isArray(q.options) && q.options.length >= 2 ? q.options.slice(0, 4) : ['Option 1', 'Option 2', 'Option 3', 'Option 4'],
+          correctIndex: typeof q.correctIndex === 'number' && q.correctIndex >= 0 && q.correctIndex < 4 ? q.correctIndex : 0,
+          imageUrl: q.imageUrl || '',
+          points: typeof q.points === 'number' && !isNaN(q.points)
+            ? q.points
+            : (q.points !== undefined && q.points !== '' && !isNaN(Number(q.points)) ? Number(q.points) : 1),
+          secretNote: q.secretNote || '',
+          timeLimit: q.timeLimit ? Number(q.timeLimit) : 60,
+          showScoreboardAfterQuestion: q.showScoreboardAfterQuestion !== undefined
+            ? Boolean(q.showScoreboardAfterQuestion)
+            : Boolean(showScoreboardAfterQuestion)
+        };
+      })
     };
 
     const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(exportData, null, 2));
@@ -611,7 +787,7 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
     showNotification(`Exported as "${filename}"!`);
   };
 
-  // Import Quiz from JSON (with splash screens, points & scoreboard toggle compatibility)
+  // Import Quiz from JSON (with closest pin, free input, splash screens, points & scoreboard toggle compatibility)
   const handleImportJSON = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -656,6 +832,7 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
 
           if (q.type === 'splash') {
             return {
+              ...q,
               id: q.id || idx + 1,
               type: 'splash',
               title: q.title || 'Splash Announcement',
@@ -664,16 +841,66 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
             };
           }
 
+          if (q.type === 'closest_pin') {
+            return {
+              ...q,
+              id: q.id || idx + 1,
+              type: 'closest_pin',
+              question: q.question || 'Where in the world was this photo taken?',
+              landmarkName: q.landmarkName || 'Mystery Landmark',
+              locationName: q.locationName || '',
+              lat: q.lat !== undefined && !isNaN(Number(q.lat)) ? Number(q.lat) : 48.8584,
+              lng: q.lng !== undefined && !isNaN(Number(q.lng)) ? Number(q.lng) : 2.2945,
+              unit: q.unit === 'mi' || q.unit === 'miles' ? 'mi' : 'km',
+              imageUrl: q.imageUrl || '',
+              points: typeof q.points === 'number' && !isNaN(q.points)
+                ? Math.max(0, Math.min(100000, q.points))
+                : (q.points !== undefined && q.points !== '' && !isNaN(Number(q.points)) ? Number(q.points) : 1),
+              secretNote: q.secretNote || '',
+              timeLimit: q.timeLimit ? Number(q.timeLimit) : 60,
+              showScoreboardAfterQuestion: q.showScoreboardAfterQuestion !== undefined
+                ? Boolean(q.showScoreboardAfterQuestion)
+                : defaultScoreboardVal
+            };
+          }
+
           if (q.type === 'free_input') {
             return {
+              ...q,
               id: q.id || idx + 1,
               type: 'free_input',
               question: q.question || `Question ${idx + 1}`,
               correctAnswer: q.correctAnswer || 'Spider-Man',
               acceptedAnswers: q.acceptedAnswers || '',
-              points: typeof q.points === 'number' && !isNaN(q.points) ? Math.max(0, Math.min(100000, q.points)) : 1,
+              imageUrl: q.imageUrl || '',
+              points: typeof q.points === 'number' && !isNaN(q.points)
+                ? Math.max(0, Math.min(100000, q.points))
+                : (q.points !== undefined && q.points !== '' && !isNaN(Number(q.points)) ? Number(q.points) : 1),
               secretNote: q.secretNote || '',
-              timeLimit: q.timeLimit || 60,
+              timeLimit: q.timeLimit ? Number(q.timeLimit) : 60,
+              showScoreboardAfterQuestion: q.showScoreboardAfterQuestion !== undefined
+                ? Boolean(q.showScoreboardAfterQuestion)
+                : defaultScoreboardVal
+            };
+          }
+
+          if (q.type === 'pa_sparet') {
+            const fallbackPreset = PA_SPARET_PRESETS[0];
+            return {
+              ...q,
+              id: q.id || idx + 1,
+              type: 'pa_sparet',
+              question: q.question || 'Where are we heading? / Vart är vi på väg?',
+              destination: q.destination || q.correctAnswer || fallbackPreset.destination,
+              acceptedAnswers: q.acceptedAnswers || fallbackPreset.acceptedAnswers,
+              youtubeUrl: q.youtubeUrl || fallbackPreset.youtubeUrl,
+              videoStartTime: q.videoStartTime !== undefined && !isNaN(Number(q.videoStartTime)) ? Number(q.videoStartTime) : fallbackPreset.videoStartTime,
+              duration: q.duration && !isNaN(Number(q.duration)) ? Number(q.duration) : 90,
+              clues: Array.isArray(q.clues) && q.clues.length === 5 ? q.clues : fallbackPreset.clues,
+              imageUrl: q.imageUrl || '',
+              points: 10,
+              secretNote: q.secretNote || '',
+              timeLimit: q.timeLimit ? Number(q.timeLimit) : 90,
               showScoreboardAfterQuestion: q.showScoreboardAfterQuestion !== undefined
                 ? Boolean(q.showScoreboardAfterQuestion)
                 : defaultScoreboardVal
@@ -681,14 +908,18 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
           }
 
           return {
+            ...q,
             id: q.id || idx + 1,
             type: 'question',
             question: q.question || `Question ${idx + 1}`,
+            imageUrl: q.imageUrl || '',
             options: Array.isArray(q.options) && q.options.length >= 2 ? q.options.slice(0, 4) : ['Option 1', 'Option 2', 'Option 3', 'Option 4'],
             correctIndex: typeof q.correctIndex === 'number' && q.correctIndex >= 0 && q.correctIndex < 4 ? q.correctIndex : 0,
-            points: typeof q.points === 'number' && !isNaN(q.points) ? Math.max(0, Math.min(100000, q.points)) : 1,
+            points: typeof q.points === 'number' && !isNaN(q.points)
+              ? Math.max(0, Math.min(100000, q.points))
+              : (q.points !== undefined && q.points !== '' && !isNaN(Number(q.points)) ? Number(q.points) : 1),
             secretNote: q.secretNote || '',
-            timeLimit: q.timeLimit || 60,
+            timeLimit: q.timeLimit ? Number(q.timeLimit) : 60,
             showScoreboardAfterQuestion: q.showScoreboardAfterQuestion !== undefined
               ? Boolean(q.showScoreboardAfterQuestion)
               : defaultScoreboardVal
@@ -890,6 +1121,15 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
                 </button>
                 <button
                   type="button"
+                  onClick={() => handleAddPaSparet()}
+                  className="px-2 py-1 rounded-lg bg-amber-600/20 hover:bg-amber-600/40 text-amber-300 border border-amber-500/30 text-[10px] font-bold cursor-pointer transition-all flex items-center gap-0.5"
+                  title="Add På Spåret Train Journey Question"
+                >
+                  <TrainIcon className="w-2.5 h-2.5" />
+                  + Spåret
+                </button>
+                <button
+                  type="button"
                   onClick={handleAddSplash}
                   className="px-2 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/40 text-amber-300 border border-amber-500/30 text-[10px] font-bold cursor-pointer transition-all"
                   title="Add Splash Screen between questions"
@@ -905,6 +1145,7 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
                 const isSplash = item.type === 'splash';
                 const isFreeInput = item.type === 'free_input';
                 const isClosestPin = item.type === 'closest_pin';
+                const isPaSparet = item.type === 'pa_sparet';
                 const isEnd = item.type === 'end';
                 const isSelected = activeIdx === idx;
 
@@ -922,6 +1163,8 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
                           ? 'bg-gradient-to-r from-emerald-900/80 to-teal-900/80 border-emerald-400 text-white font-bold shadow-md shadow-emerald-600/25'
                           : isFreeInput
                           ? 'bg-gradient-to-r from-cyan-900/80 to-purple-900/80 border-cyan-400 text-white font-bold shadow-md shadow-cyan-600/25'
+                          : isPaSparet
+                          ? 'bg-gradient-to-r from-amber-900/80 to-yellow-900/80 border-amber-400 text-white font-bold shadow-md shadow-amber-600/25'
                           : 'bg-purple-600 border-purple-400 text-white font-bold shadow-md shadow-purple-600/25'
                         : isEnd
                         ? 'bg-amber-950/20 border-amber-800/40 text-amber-200 hover:border-amber-700/60'
@@ -931,6 +1174,8 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
                         ? 'bg-emerald-950/20 border-emerald-800/40 text-emerald-200 hover:border-emerald-700/60'
                         : isFreeInput
                         ? 'bg-cyan-950/20 border-cyan-800/40 text-cyan-200 hover:border-cyan-700/60'
+                        : isPaSparet
+                        ? 'bg-amber-950/20 border-amber-800/40 text-amber-200 hover:border-amber-700/60'
                         : 'bg-slate-950/60 border-slate-800 text-slate-300 hover:border-slate-700'
                     }`}
                   >
@@ -965,6 +1210,15 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
                             <KeyboardIcon className="w-2.5 h-2.5" /> TEXT
                           </span>
                         </div>
+                      ) : isPaSparet ? (
+                        <div className="flex items-center gap-1 shrink-0">
+                          <span className={`font-mono font-bold ${isSelected ? 'text-amber-200' : 'text-amber-400'}`}>
+                            {idx + 1}.
+                          </span>
+                          <span className="px-1.5 py-0.5 rounded bg-amber-500/30 border border-amber-400/40 text-amber-200 font-black text-[8px] uppercase tracking-wider flex items-center gap-0.5">
+                            <TrainIcon className="w-2.5 h-2.5" /> SPÅRET
+                          </span>
+                        </div>
                       ) : (
                         <span className={`font-mono font-bold shrink-0 ${isSelected ? 'text-purple-200' : 'text-purple-400'}`}>
                           {idx + 1}.
@@ -972,7 +1226,7 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
                       )}
 
                       <span className="truncate font-semibold">
-                        {isEnd ? (item.title || "Final Scoreboard & Podium") : isSplash ? (item.title || 'Now the Music Round!') : isClosestPin ? (item.landmarkName ? `${item.landmarkName} (${item.locationName || 'Map'})` : item.question || 'Closest Wins') : (item.question || 'Untitled Question')}
+                        {isEnd ? (item.title || "Final Scoreboard & Podium") : isSplash ? (item.title || 'Now the Music Round!') : isClosestPin ? (item.landmarkName ? `${item.landmarkName} (${item.locationName || 'Map'})` : item.question || 'Closest Wins') : isPaSparet ? (item.destination ? `På Spåret: ${item.destination}` : 'På Spåret') : (item.question || 'Untitled Question')}
                       </span>
                     </div>
 
@@ -986,7 +1240,7 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
                           {!isSplash && (
                             <>
                               <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-900/80 border border-slate-700/60 text-amber-300">
-                                {item.points !== undefined && item.points !== '' ? item.points : 1} {Number(item.points ?? 1) === 1 ? 'pt' : 'pts'}
+                                {isPaSparet ? '10 pts' : `${item.points !== undefined && item.points !== '' ? item.points : 1} ${Number(item.points ?? 1) === 1 ? 'pt' : 'pts'}`}
                               </span>
                               {item.showScoreboardAfterQuestion === false && (
                                 <span
@@ -1078,6 +1332,16 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
             >
               <MapPinIcon className="w-3 h-3" />
               <span>+ Map Pin</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => handleAddPaSparet()}
+              className="py-2 px-1.5 rounded-xl border border-dashed border-amber-500/50 hover:bg-amber-950/30 text-amber-300 text-[11px] font-bold flex items-center justify-center gap-1 transition-all cursor-pointer"
+              title={`Insert På Spåret Train Journey Question after slide #${activeIdx + 1}`}
+            >
+              <TrainIcon className="w-3 h-3" />
+              <span>+ Spåret</span>
             </button>
 
             <button
@@ -1491,6 +1755,18 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
                         <MapPinIcon className="w-3.5 h-3.5" />
                         <span>Closest Wins (Pin)</span>
                       </button>
+                      <button
+                        type="button"
+                        onClick={() => handleSwitchQuestionType('pa_sparet')}
+                        className={`flex items-center gap-1.5 px-3 py-1 rounded-lg font-bold transition-all cursor-pointer ${
+                          activeQ.type === 'pa_sparet'
+                            ? 'bg-amber-600 text-white shadow-sm'
+                            : 'text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        <TrainIcon className="w-3.5 h-3.5" />
+                        <span>På Spåret</span>
+                      </button>
                     </div>
                   </div>
 
@@ -1499,42 +1775,48 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
                     <div className="flex items-center gap-2">
                       <AwardIcon className="w-4 h-4 text-amber-400" />
                       <label htmlFor="question-points-input" className="text-xs text-slate-300 font-semibold">Points:</label>
-                      <div className="flex items-center gap-1.5">
-                        <input
-                          id="question-points-input"
-                          type="number"
-                          min={0}
-                          max={100000}
-                          step={1}
-                          value={activeQ.points !== undefined ? activeQ.points : 1}
-                          onChange={(e) => {
-                            const raw = e.target.value;
-                            if (raw === '') {
-                              handleUpdateActiveQuestion('points', '');
-                            } else {
-                              const num = Math.min(100000, Math.max(0, parseInt(raw, 10) || 0));
-                              handleUpdateActiveQuestion('points', num);
-                            }
-                          }}
-                          onBlur={() => {
-                            if (activeQ.points === '' || activeQ.points === undefined || isNaN(Number(activeQ.points))) {
-                              handleUpdateActiveQuestion('points', 1);
-                            }
-                          }}
-                          className="w-20 bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1 text-xs font-bold text-amber-400 outline-none focus:border-purple-500 font-mono text-center"
-                          placeholder="1"
-                        />
-                        <span className="text-xs text-slate-400 font-semibold font-mono">
-                          {Number(activeQ.points ?? 1) === 1 ? 'pt' : 'pts'}
+                      {activeQ.type === 'pa_sparet' ? (
+                        <span className="px-2.5 py-1 rounded-lg bg-amber-500/20 border border-amber-500/40 text-amber-300 font-mono text-xs font-bold">
+                          10 → 8 → 6 → 4 → 2 pts
                         </span>
-                      </div>
+                      ) : (
+                        <div className="flex items-center gap-1.5">
+                          <input
+                            id="question-points-input"
+                            type="number"
+                            min={0}
+                            max={100000}
+                            step={1}
+                            value={activeQ.points !== undefined ? activeQ.points : 1}
+                            onChange={(e) => {
+                              const raw = e.target.value;
+                              if (raw === '') {
+                                handleUpdateActiveQuestion('points', '');
+                              } else {
+                                const num = Math.min(100000, Math.max(0, parseInt(raw, 10) || 0));
+                                handleUpdateActiveQuestion('points', num);
+                              }
+                            }}
+                            onBlur={() => {
+                              if (activeQ.points === '' || activeQ.points === undefined || isNaN(Number(activeQ.points))) {
+                                handleUpdateActiveQuestion('points', 1);
+                              }
+                            }}
+                            className="w-20 bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1 text-xs font-bold text-amber-400 outline-none focus:border-purple-500 font-mono text-center"
+                            placeholder="1"
+                          />
+                          <span className="text-xs text-slate-400 font-semibold font-mono">
+                            {Number(activeQ.points ?? 1) === 1 ? 'pt' : 'pts'}
+                          </span>
+                        </div>
+                      )}
                     </div>
 
                     {/* Time limit picker */}
                     <div className="flex items-center gap-2">
                       <label className="text-xs text-slate-400 font-semibold">Time limit:</label>
                       <select
-                        value={activeQ.timeLimit || 60}
+                        value={activeQ.timeLimit || (activeQ.type === 'pa_sparet' ? 90 : 60)}
                         onChange={(e) => handleUpdateActiveQuestion('timeLimit', Number(e.target.value))}
                         className="bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1 text-xs font-bold text-white outline-none focus:border-purple-500 cursor-pointer"
                       >
@@ -1587,6 +1869,8 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
                       ? "Enter your geography prompt (e.g. Where in the world was this photo taken?)"
                       : activeQ.type === 'free_input'
                       ? "Enter your free-text question here (e.g. What superhero's secret identity is Peter Parker?)"
+                      : activeQ.type === 'pa_sparet'
+                      ? "Enter your train prompt (e.g. Where are we heading? / Vart är vi på väg?)"
                       : "Enter your question here (e.g. Which planet is closest to the Sun?)"
                   }
                   className="w-full px-4 py-3 rounded-2xl bg-slate-950 border border-slate-800 focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20 text-white text-lg sm:text-xl font-bold outline-none resize-none transition-all"
@@ -1744,8 +2028,8 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
                       </span>
                     </div>
 
-                    {/* Mini Interactive World Map Picker */}
-                    <div className="h-64 w-full rounded-2xl overflow-hidden border border-slate-800 shadow-inner">
+                    {/* Interactive World Map Picker */}
+                    <div className="h-96 sm:h-[420px] w-full rounded-2xl overflow-hidden border border-slate-800 shadow-inner">
                       <WorldMap
                         interactive={true}
                         showTarget={true}
@@ -1881,6 +2165,212 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
                           const testResult = checkFreeInputAnswer(
                             testBufferInput,
                             activeQ.correctAnswer || '',
+                            activeQ.acceptedAnswers || ''
+                          );
+                          return (
+                            <div
+                              className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-2 ${
+                                testResult.isCorrect
+                                  ? 'bg-emerald-500/20 border border-emerald-500/40 text-emerald-300'
+                                  : 'bg-rose-500/20 border border-rose-500/40 text-rose-300'
+                              }`}
+                            >
+                              <span>{testResult.isCorrect ? '✓ ACCEPTED' : '✗ NOT ACCEPTED'}</span>
+                              <span className="text-[10px] font-mono opacity-80 font-normal">
+                                ({testResult.reason})
+                              </span>
+                            </div>
+                          );
+                        })()
+                      ) : (
+                        <span className="text-[11px] text-slate-500 italic py-2 sm:py-0">
+                          Try typing a spelling variant above to test
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ) : activeQ.type === 'pa_sparet' ? (
+                /* På Spåret Train Journey & 5 Progressive Clues Configuration */
+                <div className="bg-slate-900 border-2 border-amber-500/40 rounded-3xl p-6 shadow-xl space-y-6">
+                  <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-800">
+                    <div className="flex items-center gap-2">
+                      <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse" />
+                      <span className="text-xs font-bold uppercase tracking-wider text-amber-300 flex items-center gap-1.5">
+                        <TrainIcon className="w-4 h-4 text-amber-400" />
+                        På Spåret — Train Journey & 5 Progressive Clues Settings
+                      </span>
+                    </div>
+                    <span className="text-[11px] text-amber-400/90 bg-amber-950/60 border border-amber-800/60 px-2.5 py-1 rounded-lg font-mono font-semibold">
+                      5 Clue Drops: 10p (0s) → 8p (20s) → 6p (40s) → 4p (60s) → 2p (80s)
+                    </span>
+                  </div>
+
+                  {/* Preset Selector */}
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
+                        <SparklesIcon className="w-4 h-4 text-amber-400" />
+                        Choose from Curated Train Route Presets (or customize below)
+                      </label>
+                      <span className="text-[11px] text-slate-500">Auto-fills video, destination & all 5 clues</span>
+                    </div>
+                    <select
+                      onChange={(e) => {
+                        const selected = PA_SPARET_PRESETS.find(p => p.id === e.target.value);
+                        if (selected) {
+                          handleUpdateActiveQuestion('destination', selected.destination);
+                          handleUpdateActiveQuestion('acceptedAnswers', selected.acceptedAnswers);
+                          handleUpdateActiveQuestion('youtubeUrl', selected.youtubeUrl);
+                          handleUpdateActiveQuestion('videoStartTime', selected.videoStartTime);
+                          handleUpdateActiveQuestion('duration', selected.duration || 90);
+                          handleUpdateActiveQuestion('clues', JSON.parse(JSON.stringify(selected.clues)));
+                          handleUpdateActiveQuestion('secretNote', selected.secretNote);
+                          showNotification(`Applied preset: ${selected.routeTitle} → ${selected.destination}`);
+                        }
+                      }}
+                      value={PA_SPARET_PRESETS.some(p => p.destination === activeQ.destination) ? PA_SPARET_PRESETS.find(p => p.destination === activeQ.destination)?.id : ''}
+                      className="w-full px-4 py-2.5 rounded-xl bg-slate-950 border border-slate-800 focus:border-amber-500 text-white text-xs font-semibold outline-none cursor-pointer"
+                    >
+                      <option value="" disabled>Select a train journey preset...</option>
+                      {PA_SPARET_PRESETS.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.routeTitle} (Destination: {p.destination})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Destination & Synonyms */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-1.5">
+                        Destination City <span className="text-amber-400">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={activeQ.destination || ''}
+                        onChange={(e) => handleUpdateActiveQuestion('destination', e.target.value)}
+                        placeholder="e.g. Gothenburg"
+                        className="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-800 focus:border-amber-500 text-white font-bold text-base outline-none transition-all"
+                      />
+                      <p className="text-[11px] text-slate-500 mt-1">
+                        The mystery destination players are trying to guess.
+                      </p>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-1.5">
+                        Alternative Accepted Spellings <span className="text-slate-500 font-normal">(comma-separated)</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={activeQ.acceptedAnswers || ''}
+                        onChange={(e) => handleUpdateActiveQuestion('acceptedAnswers', e.target.value)}
+                        placeholder="e.g. Gothenburg, Göteborg, Goteborg"
+                        className="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-800 focus:border-amber-500 text-white font-semibold text-sm outline-none transition-all"
+                      />
+                      <p className="text-[11px] text-slate-500 mt-1">
+                        Swedish spellings, transliterations, or local variants.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* YouTube Video URL and Start Offset */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="md:col-span-2">
+                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-1.5">
+                        YouTube Train Cab-View Video URL
+                      </label>
+                      <input
+                        type="url"
+                        value={activeQ.youtubeUrl || ''}
+                        onChange={(e) => handleUpdateActiveQuestion('youtubeUrl', e.target.value)}
+                        placeholder="https://www.youtube.com/watch?v=..."
+                        className="w-full px-4 py-2.5 rounded-xl bg-slate-950 border border-slate-800 focus:border-amber-500 text-white font-mono text-xs outline-none"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-1.5">
+                        Video Start Offset (sec)
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        max={7200}
+                        value={activeQ.videoStartTime !== undefined ? activeQ.videoStartTime : 0}
+                        onChange={(e) => handleUpdateActiveQuestion('videoStartTime', Math.max(0, parseInt(e.target.value, 10) || 0))}
+                        className="w-full px-4 py-2.5 rounded-xl bg-slate-950 border border-slate-800 focus:border-amber-500 text-white font-mono text-xs outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  {/* 5 Progressive Clues Timeline Editor */}
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-bold uppercase tracking-wider text-amber-300 flex items-center gap-1.5">
+                        <span>5 Progressive Clues Timeline</span>
+                      </label>
+                      <span className="text-[11px] text-slate-500">
+                        10p is cryptic/wordplay; 2p is straightforward
+                      </span>
+                    </div>
+
+                    <div className="space-y-2.5">
+                      {(activeQ.clues || []).map((clue, idx) => (
+                        <div key={idx} className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className="px-3 py-1 rounded-xl bg-amber-500/20 border border-amber-500/50 text-amber-300 font-mono text-xs font-black">
+                              {clue.tier} PTS
+                            </span>
+                            <span className="text-[11px] font-mono text-slate-500">
+                              (at {clue.timeSec}s)
+                            </span>
+                          </div>
+
+                          <input
+                            type="text"
+                            value={clue.text || ''}
+                            onChange={(e) => {
+                              const updatedClues = [...(activeQ.clues || [])];
+                              updatedClues[idx] = { ...clue, text: e.target.value };
+                              handleUpdateActiveQuestion('clues', updatedClues);
+                            }}
+                            placeholder={`Clue for ${clue.tier} points...`}
+                            className="flex-1 bg-slate-900 border border-slate-800 focus:border-amber-500 rounded-xl px-3.5 py-2 text-xs text-white outline-none"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Real-time Typo Buffer Tester */}
+                  <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold uppercase text-slate-300 flex items-center gap-1.5">
+                        <SparklesIcon className="w-3.5 h-3.5 text-amber-400" />
+                        Test Destination Guess Matching in Real-Time
+                      </span>
+                      <span className="text-[10px] text-slate-500 font-mono">
+                        Buffer tolerates typos, accents & casing
+                      </span>
+                    </div>
+
+                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 pt-1">
+                      <input
+                        type="text"
+                        value={testBufferInput}
+                        onChange={(e) => setTestBufferInput(e.target.value)}
+                        placeholder="Type player guess to test (e.g. goteborg, gothenberg)..."
+                        className="flex-1 px-4 py-2.5 rounded-xl bg-slate-900 border border-slate-800 focus:border-amber-500 text-white text-xs font-mono outline-none"
+                      />
+
+                      {testBufferInput.trim() ? (
+                        (() => {
+                          const testResult = checkFreeInputAnswer(
+                            testBufferInput,
+                            activeQ.destination || '',
                             activeQ.acceptedAnswers || ''
                           );
                           return (

@@ -62,11 +62,11 @@ export default function WorldMap({
       const pTopLeft = coordsToPoint(maxLat, minLng);
       const pBottomRight = coordsToPoint(minLat, maxLng);
 
-      const padX = Math.max(90, (pBottomRight.x - pTopLeft.x) * 0.45);
-      const padY = Math.max(70, (pBottomRight.y - pTopLeft.y) * 0.45);
+      const padX = Math.max(25, (pBottomRight.x - pTopLeft.x) * 0.45);
+      const padY = Math.max(15, (pBottomRight.y - pTopLeft.y) * 0.45);
 
-      targetW = Math.max(160, Math.min(1000, (pBottomRight.x - pTopLeft.x) + padX * 2));
-      targetH = Math.max(100, Math.min(500, (pBottomRight.y - pTopLeft.y) + padY * 2));
+      targetW = Math.max(20, Math.min(1000, (pBottomRight.x - pTopLeft.x) + padX * 2));
+      targetH = Math.max(10, Math.min(500, (pBottomRight.y - pTopLeft.y) + padY * 2));
 
       const centerX = (pTopLeft.x + pBottomRight.x) / 2;
       const centerY = (pTopLeft.y + pBottomRight.y) / 2;
@@ -155,12 +155,12 @@ export default function WorldMap({
     : null;
 
   // Counter-scaling factor: exactly cancels SVG viewport zoom so markers remain at constant screen size!
-  const markerScale = viewBox.width / 1000;
+  const markerScale = Math.max(0.012, viewBox.width / 1000);
 
   // Check if click/touch is near the existing placed pin
   const isNearSelectedPin = (svgCoords) => {
     if (!selectedPt || !svgCoords) return false;
-    const hitRadius = 28 * markerScale;
+    const hitRadius = 34 * markerScale;
     const dx = svgCoords.x - selectedPt.x;
     const dy = svgCoords.y - selectedPt.y;
     return Math.hypot(dx, dy) <= hitRadius;
@@ -330,11 +330,13 @@ export default function WorldMap({
     }
   };
 
-  // Zoom helper centered around a screen point
+  // Zoom helper centered around a screen point (allows zooming down to 100x zoom!)
   const applyZoom = (factor, screenX, screenY) => {
     setViewBox((prev) => {
-      const newWidth = Math.max(120, Math.min(1000, prev.width * factor));
-      const newHeight = Math.max(60, Math.min(500, prev.height * factor));
+      const minW = 10;
+      const minH = 5;
+      const newWidth = Math.max(minW, Math.min(1000, prev.width * factor));
+      const newHeight = Math.max(minH, Math.min(500, prev.height * factor));
 
       let newX = prev.x + (prev.width - newWidth) / 2;
       let newY = prev.y + (prev.height - newHeight) / 2;
@@ -354,6 +356,11 @@ export default function WorldMap({
         height: newHeight
       };
     });
+  };
+
+  const handleDoubleClick = (e) => {
+    if (e.target.closest('.map-control-overlay')) return;
+    applyZoom(0.55, e.clientX, e.clientY);
   };
 
   const handleResetZoom = () => {
@@ -380,6 +387,7 @@ export default function WorldMap({
         preserveAspectRatio="xMidYMid meet"
         className="w-full h-full cursor-crosshair transition-[viewBox] duration-700 ease-out"
         onClick={handleMapClick}
+        onDoubleClick={handleDoubleClick}
       >
         <defs>
           {/* Subtle star glow filter (clean stationary SVG filter) */}
@@ -543,21 +551,29 @@ export default function WorldMap({
 
       {/* Map Pan & Zoom Controls Overlay - Fully isolated to prevent accidental pin drops */}
       <div
-        className="map-control-overlay absolute bottom-3 right-3 flex flex-col gap-1.5 z-30"
+        className="map-control-overlay absolute bottom-3 right-3 flex flex-col items-center gap-1.5 z-30"
         onClick={(e) => e.stopPropagation()}
         onMouseDown={(e) => e.stopPropagation()}
         onTouchStart={(e) => e.stopPropagation()}
         onTouchMove={(e) => e.stopPropagation()}
         onTouchEnd={(e) => e.stopPropagation()}
       >
+        {/* Current Zoom Level Badge */}
+        <span
+          className="px-2 py-0.5 rounded-lg bg-slate-900/95 border border-slate-700/80 text-[10px] font-mono font-bold text-emerald-400 text-center shadow-lg pointer-events-none select-none min-w-[36px]"
+          title="Current Zoom Level"
+        >
+          {Math.round((1000 / viewBox.width) * 10) / 10}x
+        </span>
+
         <button
           type="button"
           onClick={(e) => {
             e.stopPropagation();
-            applyZoom(0.7);
+            applyZoom(0.65);
           }}
-          className="w-9 h-9 rounded-xl bg-slate-900/95 border border-slate-700/80 text-white font-black text-base flex items-center justify-center hover:bg-slate-800 active:scale-95 transition-all shadow-xl cursor-pointer"
-          title="Zoom In"
+          className="w-9 h-9 rounded-xl bg-slate-900/95 border border-slate-700/80 text-white font-black text-lg flex items-center justify-center hover:bg-slate-800 active:scale-95 transition-all shadow-xl cursor-pointer"
+          title="Zoom In (or double-click on map / pinch)"
         >
           +
         </button>
@@ -565,9 +581,9 @@ export default function WorldMap({
           type="button"
           onClick={(e) => {
             e.stopPropagation();
-            applyZoom(1.3);
+            applyZoom(1.5);
           }}
-          className="w-9 h-9 rounded-xl bg-slate-900/95 border border-slate-700/80 text-white font-black text-base flex items-center justify-center hover:bg-slate-800 active:scale-95 transition-all shadow-xl cursor-pointer"
+          className="w-9 h-9 rounded-xl bg-slate-900/95 border border-slate-700/80 text-white font-black text-lg flex items-center justify-center hover:bg-slate-800 active:scale-95 transition-all shadow-xl cursor-pointer"
           title="Zoom Out"
         >
           −
@@ -579,7 +595,7 @@ export default function WorldMap({
             handleResetZoom();
           }}
           className="w-9 h-9 rounded-xl bg-slate-900/95 border border-slate-700/80 text-amber-300 font-bold text-sm flex items-center justify-center hover:bg-slate-800 active:scale-95 transition-all shadow-xl cursor-pointer"
-          title="Reset View"
+          title="Reset to World View (1x)"
         >
           ⟲
         </button>

@@ -3,8 +3,21 @@ import { ref, get, set, push, onValue, update } from 'firebase/database';
 import { db } from '../firebase.js';
 import { checkFreeInputAnswer } from '../utils/answerMatcher.js';
 import WorldMap from './WorldMap.jsx';
+import { playEmergencyBrakeSound } from '../data/paSparetPresets.js';
 
 // Clean inline SVGs (zero external dependencies)
+const TrainIcon = ({ className = 'w-6 h-6' }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect width="16" height="16" x="4" y="3" rx="2" />
+    <path d="M4 11h16" />
+    <path d="M12 3v8" />
+    <path d="m8 19-2 3" />
+    <path d="m18 22-2-3" />
+    <circle cx="8" cy="15" r="1" fill="currentColor" />
+    <circle cx="16" cy="15" r="1" fill="currentColor" />
+  </svg>
+);
+
 const MapPinIcon = ({ className = 'w-6 h-6' }) => (
   <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z" />
@@ -123,6 +136,8 @@ export default function PlayerJoin({ initialRoomCode = '' }) {
   const [isSubmittingText, setIsSubmittingText] = useState(false);
   const [selectedPin, setSelectedPin] = useState(null); // { lat, lng }
   const [isSubmittingPin, setIsSubmittingPin] = useState(false);
+  const [isMapExpanded, setIsMapExpanded] = useState(false);
+  const [showPhotoModal, setShowPhotoModal] = useState(false);
   const [timeLeft, setTimeLeft] = useState(20);
 
   // Sync if prop changes externally
@@ -251,6 +266,8 @@ export default function PlayerJoin({ initialRoomCode = '' }) {
         setMyAnswer(null);
         setSelectedPin(null);
         setPlayerTextInput('');
+        setIsMapExpanded(false);
+        setShowPhotoModal(false);
       }
     });
 
@@ -379,11 +396,83 @@ export default function PlayerJoin({ initialRoomCode = '' }) {
     setIsSubmittingPin(false);
   };
 
+  // Handle Player Pulling Emergency Brake for På Spåret
+  const handleSubmitPaSparet = async (e) => {
+    if (e && e.preventDefault) e.preventDefault();
+    const trimmed = playerTextInput.trim();
+    if (!trimmed || myAnswer !== null || !roomData || timeLeft <= 0 || isSubmittingText) return;
+
+    setIsSubmittingText(true);
+    const currentQIndex = roomData.currentQuestionIndex || 0;
+    const currentQ = roomData.questions?.[currentQIndex];
+
+    const startTime = roomData.questionStartTime || Date.now();
+    const elapsed = Math.max(0, Math.floor((Date.now() - startTime) / 1000));
+    let lockedTier = 10;
+    if (elapsed >= 80) lockedTier = 2;
+    else if (elapsed >= 60) lockedTier = 4;
+    else if (elapsed >= 40) lockedTier = 6;
+    else if (elapsed >= 20) lockedTier = 8;
+    else lockedTier = 10;
+
+    const matchResult = checkFreeInputAnswer(
+      trimmed,
+      currentQ?.destination || currentQ?.correctAnswer || '',
+      currentQ?.acceptedAnswers || ''
+    );
+    const isCorrect = Boolean(matchResult.isCorrect);
+    const pointsAwarded = isCorrect ? lockedTier : 0;
+
+    // Play tactile sound effect!
+    playEmergencyBrakeSound();
+
+    setMyAnswer(trimmed);
+
+    const currentScore = roomData.players?.[currentPlayerId]?.score || 0;
+    const playerRef = ref(db, `rooms/${joinedRoomCode}/players/${currentPlayerId}`);
+
+    await update(playerRef, {
+      score: currentScore + pointsAwarded,
+      [`answers/${currentQIndex}`]: {
+        textAnswer: trimmed,
+        isCorrect,
+        pointsAwarded,
+        lockedTier,
+        reason: matchResult.reason,
+        timeElapsedSec: elapsed,
+        answeredAt: Date.now()
+      }
+    });
+
+    setIsSubmittingText(false);
+  };
+
   const status = roomData?.status || 'lobby';
   const currentQIndex = roomData?.currentQuestionIndex || 0;
   const currentQuestion = roomData?.questions?.[currentQIndex];
   const myPlayerObj = roomData?.players?.[currentPlayerId];
   const lastAnswerObj = myPlayerObj?.answers?.[currentQIndex];
+
+  // Calculate På Spåret active tier and next drop time
+  const elapsedSinceQuestionStart = Math.max(0, Math.floor((Date.now() - (roomData?.questionStartTime || Date.now())) / 1000));
+  let currentPaSparetTier = 10;
+  let nextPaSparetDropSec = 20 - (elapsedSinceQuestionStart % 20);
+  if (elapsedSinceQuestionStart >= 80) {
+    currentPaSparetTier = 2;
+    nextPaSparetDropSec = 0;
+  } else if (elapsedSinceQuestionStart >= 60) {
+    currentPaSparetTier = 4;
+    nextPaSparetDropSec = 80 - elapsedSinceQuestionStart;
+  } else if (elapsedSinceQuestionStart >= 40) {
+    currentPaSparetTier = 6;
+    nextPaSparetDropSec = 60 - elapsedSinceQuestionStart;
+  } else if (elapsedSinceQuestionStart >= 20) {
+    currentPaSparetTier = 8;
+    nextPaSparetDropSec = 40 - elapsedSinceQuestionStart;
+  } else {
+    currentPaSparetTier = 10;
+    nextPaSparetDropSec = 20 - elapsedSinceQuestionStart;
+  }
 
   const allSlides = roomData?.questions || [];
   const totalQuestions = allSlides.filter((q) => q.type !== 'splash' && q.type !== 'end').length;
@@ -508,7 +597,9 @@ export default function PlayerJoin({ initialRoomCode = '' }) {
 
         {/* 2. QUESTION SCREEN */}
         {status === 'question' && (
-          <main className="my-auto w-full max-w-md mx-auto flex flex-col items-center">
+          <main className={`my-auto w-full mx-auto flex flex-col items-center transition-all duration-300 ${
+            currentQuestion?.type === 'closest_pin' ? 'max-w-4xl 2xl:max-w-6xl px-1 sm:px-4' : 'max-w-md'
+          }`}>
             {/* Header: Question Number, Points Value & Live Timer Bar */}
             <div className="w-full flex items-center justify-between mb-2">
               <div className="flex items-center gap-2">
@@ -527,8 +618,16 @@ export default function PlayerJoin({ initialRoomCode = '' }) {
                     <span>Free Text</span>
                   </span>
                 )}
+                {currentQuestion?.type === 'pa_sparet' && (
+                  <span className="px-1.5 py-0.5 rounded bg-amber-500/20 border border-amber-500/40 text-[10px] font-mono text-amber-300 font-bold flex items-center gap-1">
+                    <TrainIcon className="w-3 h-3 text-amber-400" />
+                    <span>På Spåret</span>
+                  </span>
+                )}
                 <span className="px-1.5 py-0.5 rounded bg-amber-500/20 border border-amber-500/40 text-[10px] font-mono text-amber-300 font-bold">
-                  {currentQuestion?.points !== undefined && currentQuestion.points !== '' ? currentQuestion.points : 1} {Number(currentQuestion?.points ?? 1) === 1 ? 'pt' : 'pts'}
+                  {currentQuestion?.type === 'pa_sparet'
+                    ? `Tier: ${currentPaSparetTier} pts`
+                    : `${currentQuestion?.points !== undefined && currentQuestion.points !== '' ? currentQuestion.points : 1} ${Number(currentQuestion?.points ?? 1) === 1 ? 'pt' : 'pts'}`}
                 </span>
               </div>
               <span className={`text-xs font-mono font-bold ${timeLeft <= 5 ? 'text-rose-400 animate-ping' : 'text-slate-400'}`}>
@@ -551,19 +650,59 @@ export default function PlayerJoin({ initialRoomCode = '' }) {
               myAnswer === null ? (
                 timeLeft > 0 ? (
                   <div className="w-full space-y-3">
-                    <div className="bg-slate-900/90 border-2 border-emerald-500/40 rounded-3xl p-4 shadow-2xl space-y-3">
-                      <div className="flex items-center justify-between">
+                    <div className="bg-slate-900/90 border-2 border-emerald-500/40 rounded-3xl p-3.5 sm:p-5 shadow-2xl space-y-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
                         <span className="text-xs font-bold uppercase tracking-wider text-emerald-300 flex items-center gap-1.5">
                           <MapPinIcon className="w-4 h-4 text-emerald-400" />
                           <span>Drop Pin on World Map</span>
                         </span>
-                        <span className="text-[11px] font-mono text-emerald-400/90">
-                          {selectedPin ? `${selectedPin.lat.toFixed(1)}°, ${selectedPin.lng.toFixed(1)}°` : 'Tap to place'}
-                        </span>
+
+                        <div className="flex items-center gap-2">
+                          {currentQuestion?.imageUrl && (
+                            <button
+                              type="button"
+                              onClick={() => setShowPhotoModal(!showPhotoModal)}
+                              className="px-2.5 py-1 rounded-xl bg-slate-950 border border-slate-700 hover:border-emerald-500 text-[11px] font-bold text-emerald-300 flex items-center gap-1 transition-all cursor-pointer shadow-sm active:scale-95"
+                              title="Toggle Landmark Photo Clue"
+                            >
+                              <span>📷 Photo Clue</span>
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => setIsMapExpanded(!isMapExpanded)}
+                            className="px-2.5 py-1 rounded-xl bg-slate-950 border border-slate-700 hover:border-emerald-500 text-[11px] font-bold text-slate-300 hover:text-white flex items-center gap-1 transition-all cursor-pointer shadow-sm active:scale-95"
+                            title={isMapExpanded ? "Compact View" : "Maximize Map"}
+                          >
+                            <span>{isMapExpanded ? '⤡ Compact' : '⤢ Maximize'}</span>
+                          </button>
+                        </div>
                       </div>
 
-                      {/* Interactive World Map */}
-                      <div className="w-full h-72 sm:h-80 rounded-2xl overflow-hidden border border-slate-800 shadow-inner">
+                      {/* Optional Landmark Photo Drawer */}
+                      {showPhotoModal && currentQuestion?.imageUrl && (
+                        <div className="relative rounded-2xl overflow-hidden border border-emerald-500/40 bg-slate-950 shadow-xl max-h-48 sm:max-h-60 transition-all">
+                          <img
+                            src={currentQuestion.imageUrl}
+                            alt="Mystery Landmark Clue"
+                            className="w-full h-44 sm:h-56 object-cover object-center"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowPhotoModal(false)}
+                            className="absolute top-2 right-2 bg-slate-950/80 hover:bg-slate-950 text-white p-1 rounded-full text-xs font-bold w-6 h-6 flex items-center justify-center border border-slate-700 cursor-pointer"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Interactive World Map with dynamic responsive height */}
+                      <div className={`w-full transition-all duration-300 rounded-2xl overflow-hidden border border-slate-800 shadow-inner relative ${
+                        isMapExpanded
+                          ? 'h-[72vh] min-h-[460px]'
+                          : 'h-[48vh] sm:h-[56vh] min-h-[320px] max-h-[640px]'
+                      }`}>
                         <WorldMap
                           interactive={true}
                           selectedPin={selectedPin}
@@ -573,9 +712,9 @@ export default function PlayerJoin({ initialRoomCode = '' }) {
                       </div>
 
                       <div className="flex items-center justify-between text-[11px] text-slate-400 px-1">
-                        <span>Pinch to zoom • Drag to pan</span>
-                        <span className="text-emerald-400 font-bold">
-                          {selectedPin ? '✓ Pin ready to submit' : 'Tap anywhere to drop pin'}
+                        <span>Pinch / + to zoom • Drag to pan</span>
+                        <span className="font-mono text-emerald-400 font-bold">
+                          {selectedPin ? `📍 ${selectedPin.lat.toFixed(2)}°, ${selectedPin.lng.toFixed(2)}°` : 'Tap anywhere to drop pin'}
                         </span>
                       </div>
                     </div>
@@ -623,7 +762,7 @@ export default function PlayerJoin({ initialRoomCode = '' }) {
 
                   {/* Mini locked map preview */}
                   {selectedPin && (
-                    <div className="w-full h-40 rounded-xl overflow-hidden border border-slate-800 opacity-90">
+                    <div className="w-full h-48 sm:h-64 rounded-xl overflow-hidden border border-slate-800 opacity-90">
                       <WorldMap
                         interactive={false}
                         selectedPin={selectedPin}
@@ -708,6 +847,125 @@ export default function PlayerJoin({ initialRoomCode = '' }) {
                   </p>
                 </div>
               )
+            ) : currentQuestion?.type === 'pa_sparet' ? (
+              myAnswer === null ? (
+                timeLeft > 0 ? (
+                  <form onSubmit={handleSubmitPaSparet} className="w-full space-y-4">
+                    {/* Emergency Brake Tier Alert Banner */}
+                    <div className="bg-gradient-to-r from-red-950/80 via-amber-950/60 to-red-950/80 border-2 border-red-500/60 rounded-3xl p-4 shadow-xl text-center space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="px-2.5 py-1 rounded-lg bg-red-600/30 border border-red-500/50 text-red-200 text-xs font-mono font-black uppercase tracking-wider flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-red-400 animate-ping" />
+                          EMERGENCY BRAKE
+                        </span>
+                        <span className="text-xs font-mono text-amber-300 font-bold">
+                          {nextPaSparetDropSec > 0 ? `Drops in ${nextPaSparetDropSec}s` : 'Final Tier!'}
+                        </span>
+                      </div>
+
+                      <div className="py-2">
+                        <p className="text-[11px] uppercase tracking-widest text-slate-400 font-bold">Current Active Reward</p>
+                        <h4 className="text-4xl font-black text-amber-300 tracking-tight drop-shadow">
+                          {currentPaSparetTier} <span className="text-xl font-bold text-amber-400/90">POINTS</span>
+                        </h4>
+                      </div>
+
+                      <p className="text-[11px] text-slate-300 leading-relaxed">
+                        Pulling the brake locks in your score. The earlier you brake, the higher your points!
+                      </p>
+                    </div>
+
+                    {/* Unlocked Clues Feed */}
+                    <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-4 space-y-2 text-left shadow-lg">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block px-1">
+                        Unlocked Clues Feed:
+                      </span>
+                      <div className="space-y-2 max-h-48 overflow-y-auto">
+                        {(currentQuestion.clues || [])
+                          .filter(clue => elapsedSinceQuestionStart >= clue.timeSec)
+                          .map((clue, idx) => (
+                            <div key={idx} className="p-2.5 rounded-xl bg-slate-950 border border-amber-500/30 flex items-start gap-2.5">
+                              <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 font-mono text-xs font-bold shrink-0">
+                                {clue.tier}p
+                              </span>
+                              <p className="text-xs text-slate-200 leading-snug">{clue.text}</p>
+                            </div>
+                          ))}
+                      </div>
+                    </div>
+
+                    {/* Destination Guess Free-Text Input */}
+                    <div className="bg-slate-900/90 border-2 border-amber-500/40 rounded-3xl p-4 shadow-xl space-y-2 text-left">
+                      <label className="text-xs font-bold uppercase tracking-wider text-amber-300 flex items-center gap-1.5">
+                        <TrainIcon className="w-4 h-4 text-amber-400" />
+                        <span>Enter Destination City:</span>
+                      </label>
+                      <input
+                        type="text"
+                        autoFocus
+                        value={playerTextInput}
+                        onChange={(e) => setPlayerTextInput(e.target.value)}
+                        placeholder="e.g. Gothenburg / Göteborg..."
+                        className="w-full bg-slate-950 border border-slate-700 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 rounded-2xl px-4 py-3.5 text-base sm:text-lg font-bold text-white placeholder-slate-600 outline-none transition-all"
+                      />
+                    </div>
+
+                    {/* Large Red Emergency Brake Button */}
+                    <button
+                      type="submit"
+                      disabled={!playerTextInput.trim() || isSubmittingText}
+                      className="w-full py-4 rounded-2xl bg-gradient-to-r from-red-600 via-rose-600 to-red-700 hover:from-red-500 hover:to-rose-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-black text-base sm:text-lg shadow-xl shadow-red-700/40 active:scale-98 transition-all cursor-pointer flex flex-col items-center justify-center gap-0.5 border-2 border-red-400/50"
+                    >
+                      {isSubmittingText ? (
+                        <div className="flex items-center gap-2">
+                          <LoaderIcon className="w-5 h-5 text-white" />
+                          <span>Pulling Emergency Brake...</span>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xl">🛑</span>
+                            <span>PULL EMERGENCY BRAKE</span>
+                          </div>
+                          <span className="text-[11px] font-mono font-normal opacity-90">
+                            Lock in now for {currentPaSparetTier} Points
+                          </span>
+                        </>
+                      )}
+                    </button>
+                  </form>
+                ) : (
+                  <div className="py-12 px-6 rounded-3xl bg-slate-900 border border-slate-800 text-center w-full shadow-2xl">
+                    <div className="w-16 h-16 mx-auto rounded-full bg-rose-500/20 border border-rose-500/40 flex items-center justify-center text-rose-400 mb-4">
+                      <XCircleIcon className="w-8 h-8" />
+                    </div>
+                    <h3 className="text-xl font-black text-white">Journey Ended!</h3>
+                    <p className="text-xs text-slate-400 mt-2">
+                      The train has arrived at its destination. Look up at the screen!
+                    </p>
+                  </div>
+                )
+              ) : (
+                /* Emergency Brake Engaged Screen */
+                <div className="py-8 px-6 rounded-3xl bg-slate-900 border-2 border-amber-500/50 text-center w-full shadow-2xl space-y-4">
+                  <div className="w-16 h-16 mx-auto rounded-full bg-red-600/20 border border-red-500 flex items-center justify-center text-red-400 mb-2 shadow-lg shadow-red-600/30">
+                    <span className="text-3xl animate-pulse">🛑</span>
+                  </div>
+                  <h3 className="text-2xl font-black text-white">Emergency Brake Pulled!</h3>
+                  <div className="p-4 rounded-2xl bg-slate-950 border border-amber-500/30 space-y-1.5">
+                    <span className="text-[11px] text-slate-400 uppercase tracking-wider font-bold block">Your Locked Guess:</span>
+                    <strong className="text-amber-300 font-sans text-xl block">
+                      "{typeof myAnswer === 'object' ? myAnswer.text : (lastAnswerObj?.textAnswer || myAnswer)}"
+                    </strong>
+                    <span className="inline-block mt-1 px-3 py-1 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300 font-mono text-xs font-bold">
+                      Locked at {lastAnswerObj?.lockedTier || (typeof myAnswer === 'object' ? myAnswer.lockedTier : currentPaSparetTier)} Points Tier
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-400 leading-relaxed">
+                    Train cab view is still streaming on the big screen. Destination will reveal at the end of the journey!
+                  </p>
+                </div>
+              )
             ) : (
               /* Multiple-Choice Question Mode */
               myAnswer === null ? (
@@ -758,6 +1016,7 @@ export default function PlayerJoin({ initialRoomCode = '' }) {
         {status === 'reveal' && (() => {
           const isClosestPin = currentQuestion?.type === 'closest_pin';
           const isFree = currentQuestion?.type === 'free_input';
+          const isPaSparet = currentQuestion?.type === 'pa_sparet';
 
           if (isClosestPin) {
             const isWinner = Boolean(lastAnswerObj?.isWinner);
@@ -817,6 +1076,66 @@ export default function PlayerJoin({ initialRoomCode = '' }) {
                     </div>
                     <h2 className="text-xl font-black text-white">No Pin Placed</h2>
                     <p className="text-xs text-slate-400 mt-1">You didn't drop a pin before time ran out.</p>
+                  </div>
+                )}
+              </main>
+            );
+          }
+
+          if (isPaSparet) {
+            const isCorrect = Boolean(lastAnswerObj?.isCorrect);
+            const hasAnswered = lastAnswerObj !== undefined && lastAnswerObj.textAnswer !== undefined;
+            const pointsWon = lastAnswerObj?.pointsAwarded || 0;
+            const lockedTier = lastAnswerObj?.lockedTier || 2;
+
+            return (
+              <main className="my-auto text-center flex flex-col items-center w-full max-w-sm mx-auto space-y-4">
+                {isCorrect ? (
+                  <div className="p-8 rounded-3xl bg-emerald-950/60 border-2 border-emerald-500 shadow-2xl w-full animate-in zoom-in-95 duration-200 space-y-3">
+                    <TrainIcon className="w-16 h-16 text-emerald-400 mx-auto animate-bounce" />
+                    <h2 className="text-2xl font-black text-white">Destination Reached! 🚂</h2>
+                    <p className="text-2xl font-black text-emerald-400">
+                      +{pointsWon} Points
+                    </p>
+                    <div className="p-3 rounded-2xl bg-slate-950 border border-emerald-500/30 text-xs space-y-1">
+                      <span className="text-slate-400 block text-[10px] uppercase font-bold">Destination City:</span>
+                      <strong className="text-emerald-300 font-sans text-lg">{currentQuestion.destination || currentQuestion.correctAnswer}</strong>
+                      <span className="text-[11px] font-mono text-emerald-400/90 block">
+                        Locked in at {lockedTier} pts tier
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-400 pt-1">
+                      Total Score: <span className="text-purple-300 font-mono font-bold">{myPlayerObj?.score || 0} pts</span>
+                    </p>
+                  </div>
+                ) : hasAnswered ? (
+                  <div className="p-8 rounded-3xl bg-rose-950/60 border border-rose-500/60 shadow-2xl w-full animate-in zoom-in-95 duration-200 space-y-3">
+                    <XCircleIcon className="w-16 h-16 text-rose-400 mx-auto" />
+                    <h2 className="text-2xl font-black text-white">Wrong Destination!</h2>
+                    <div className="space-y-2 text-xs">
+                      <div className="p-2.5 rounded-xl bg-slate-950 border border-rose-500/30">
+                        <span className="text-slate-400 block text-[10px] uppercase font-bold">You guessed:</span>
+                        <span className="font-mono text-rose-300 font-bold">"{lastAnswerObj?.textAnswer}"</span>
+                      </div>
+                      <div className="p-2.5 rounded-xl bg-slate-950 border border-emerald-500/30">
+                        <span className="text-slate-400 block text-[10px] uppercase font-bold">Correct destination was:</span>
+                        <span className="font-sans text-emerald-300 font-bold text-sm">{currentQuestion.destination || currentQuestion.correctAnswer}</span>
+                      </div>
+                    </div>
+                    <p className="text-xs text-slate-400 pt-1">
+                      Total Score: <span className="text-purple-300 font-mono font-bold">{myPlayerObj?.score || 0} pts</span>
+                    </p>
+                  </div>
+                ) : (
+                  <div className="p-8 rounded-3xl bg-slate-900 border border-slate-800 shadow-2xl w-full space-y-3">
+                    <TrainIcon className="w-14 h-14 text-amber-400 mx-auto opacity-70" />
+                    <h2 className="text-xl font-black text-white">No Brake Pulled</h2>
+                    <p className="text-xs text-slate-400">
+                      The destination was <strong className="text-amber-300">{currentQuestion.destination || currentQuestion.correctAnswer}</strong>
+                    </p>
+                    <p className="text-xs text-slate-400 pt-1">
+                      Total Score: <span className="text-purple-300 font-mono font-bold">{myPlayerObj?.score || 0} pts</span>
+                    </p>
                   </div>
                 )}
               </main>

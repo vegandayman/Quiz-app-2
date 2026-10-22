@@ -19,6 +19,18 @@ const EyeIcon = ({ className = 'w-5 h-5' }) => (
   </svg>
 );
 
+const TrainIcon = ({ className = 'w-4 h-4' }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="4" y="3" width="16" height="16" rx="2" />
+    <path d="M4 11h16" />
+    <path d="M12 3v8" />
+    <path d="m8 19-2 3" />
+    <path d="m16 19 2 3" />
+    <circle cx="8" cy="15" r="1" />
+    <circle cx="16" cy="15" r="1" />
+  </svg>
+);
+
 const EditIcon = ({ className = 'w-4 h-4' }) => (
   <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
@@ -195,6 +207,26 @@ const defaultQuestions = [
     points: 1,
     secretNote: 'Gustave Eiffel built this tower for the 1889 World Fair. It stands on the Champ de Mars by the Seine River!',
     timeLimit: 60
+  },
+  {
+    id: 'pa-sparet-gothenburg',
+    type: 'pa_sparet',
+    question: 'Where are we heading? / Vart är vi på väg?',
+    destination: 'Gothenburg',
+    acceptedAnswers: 'Gothenburg, Göteborg, Goteborg',
+    youtubeUrl: 'https://www.youtube.com/watch?v=q6E2XgS_c_o',
+    videoStartTime: 20,
+    duration: 90,
+    clues: [
+      { tier: 10, timeSec: 0, text: 'We depart towards a city founded on granite and salt water, where 17th-century Dutch canal planners left their geometric mark.' },
+      { tier: 8, timeSec: 20, text: 'In this coastal powerhouse, the largest port in the Nordic region welcomes giant freighters beneath the Älvsborg suspension bridge.' },
+      { tier: 6, timeSec: 40, text: 'Safety first! The three-point seatbelt and iconic boxy station wagons were born here, alongside Scandinavia’s grandest amusement park.' },
+      { tier: 4, timeSec: 60, text: 'Sweden’s second city on the Kattegat sea, where blue-and-white trams glide past the Fish Church and Ullevi stadium.' },
+      { tier: 2, timeSec: 80, text: 'Starts with G! From Avenyn to Poseidon’s fountain, welcome to Göteborg!' }
+    ],
+    points: 10,
+    secretNote: 'Founded in 1621 by King Gustavus Adolphus ("Here the city shall lie!"). Home of Volvo, Hasselblad cameras, and Europe’s iconic Liseberg amusement park.',
+    timeLimit: 90
   },
   {
     id: 'final-end-screen',
@@ -434,6 +466,22 @@ export default function HostConsole({ onOpenDisplay, onRoomCodeReady }) {
   });
   const rankedMapPlayers = isClosestPin ? findClosestPlayers(targetLat, targetLng, mapPlayersList, unit) : [];
   const revealStage = roomData?.revealStage || 1;
+
+  const isPaSparet = activeQuestion?.type === 'pa_sparet';
+  const paSparetBrakesList = players.map((p) => {
+    const ans = p.answers?.[currentQIndex];
+    return {
+      id: p.id,
+      name: p.name,
+      score: p.score || 0,
+      hasBraked: ans?.textAnswer !== undefined,
+      textAnswer: ans?.textAnswer || '',
+      lockedTier: ans?.lockedTier || 0,
+      isCorrect: Boolean(ans?.isCorrect),
+      pointsAwarded: ans?.pointsAwarded || 0,
+      timeElapsedSec: ans?.timeElapsedSec || 0
+    };
+  }).filter((p) => p.hasBraked);
 
   const allPlayersAnswered = players.length > 0 && totalSubmitted === players.length;
 
@@ -1176,7 +1224,8 @@ export default function HostConsole({ onOpenDisplay, onRoomCodeReady }) {
                 <span className="px-3 py-1 rounded-full bg-purple-500/20 border border-purple-500/40 text-purple-300 font-mono text-xs font-bold flex items-center gap-1.5">
                   {activeQuestion.type === 'closest_pin' && <MapPinIcon className="w-3.5 h-3.5 text-emerald-400" />}
                   {activeQuestion.type === 'free_input' && <KeyboardIcon className="w-3.5 h-3.5 text-cyan-400" />}
-                  <span>{activeQuestion.type === 'closest_pin' ? 'CLOSEST-PIN' : activeQuestion.type === 'free_input' ? 'FREE-TEXT' : 'QUESTION'} {questionsPassed} OF {totalQuestions}</span>
+                  {activeQuestion.type === 'pa_sparet' && <TrainIcon className="w-3.5 h-3.5 text-amber-400" />}
+                  <span>{activeQuestion.type === 'closest_pin' ? 'CLOSEST-PIN' : activeQuestion.type === 'free_input' ? 'FREE-TEXT' : activeQuestion.type === 'pa_sparet' ? 'PÅ SPÅRET' : 'QUESTION'} {questionsPassed} OF {totalQuestions}</span>
                 </span>
                 <span className="px-2.5 py-1 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300 font-mono text-xs font-bold flex items-center gap-1">
                   <AwardIcon className="w-3.5 h-3.5 text-amber-400" />
@@ -1309,6 +1358,78 @@ export default function HostConsole({ onOpenDisplay, onRoomCodeReady }) {
                   <span className="text-cyan-300 font-mono">"spider-man!"</span> are automatically scored as correct!
                 </p>
               </div>
+            ) : activeQuestion.type === 'pa_sparet' ? (
+              <div className="p-5 rounded-2xl bg-amber-950/30 border-2 border-amber-500/50 space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-amber-900/40">
+                  <span className="text-xs font-bold uppercase tracking-wider text-amber-300 flex items-center gap-1.5">
+                    <TrainIcon className="w-4 h-4 text-amber-400" />
+                    På Spåret Train Journey · Confidential Key & Clue Guide
+                  </span>
+                  <span className="text-[11px] font-mono text-amber-400/90 bg-amber-950 border border-amber-800/80 px-2 py-0.5 rounded">
+                    5 Clue Drops (10 → 8 → 6 → 4 → 2 pts)
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="p-3.5 rounded-xl bg-slate-950 border border-amber-500/50">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-amber-400 block mb-1">
+                      Destination City:
+                    </span>
+                    <span className="text-2xl font-black text-amber-300 font-sans tracking-wide">
+                      {activeQuestion.destination || activeQuestion.correctAnswer || 'Unknown'}
+                    </span>
+                  </div>
+
+                  <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                      Alternative Accepted Spellings:
+                    </span>
+                    <span className="text-sm font-semibold text-slate-200">
+                      {Array.isArray(activeQuestion.acceptedAnswers)
+                        ? activeQuestion.acceptedAnswers.join(', ')
+                        : (activeQuestion.acceptedAnswers || activeQuestion.destination || 'None')}
+                    </span>
+                  </div>
+                </div>
+
+                {/* 5-Tier Clues Breakdown for Host */}
+                <div className="space-y-2">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-300">
+                    5 Progressive Clues Timeline:
+                  </span>
+                  <div className="grid grid-cols-1 gap-2">
+                    {(activeQuestion.clues || []).map((clue, idx) => (
+                      <div key={idx} className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800 flex items-start gap-3">
+                        <span className="px-2 py-0.5 rounded bg-amber-500/20 border border-amber-500/40 text-amber-300 font-mono text-xs font-bold shrink-0">
+                          {clue.tier} PTS ({clue.timeSec}s)
+                        </span>
+                        <p className="text-xs text-slate-200 leading-relaxed font-sans">{clue.text}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Real-time Brakes Pulled by Players */}
+                {paSparetBrakesList.length > 0 && (
+                  <div className="pt-2 border-t border-amber-900/40 space-y-2">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-amber-300">
+                      Emergency Brakes Pulled ({paSparetBrakesList.length} players locked in):
+                    </span>
+                    <div className="flex flex-wrap gap-2">
+                      {paSparetBrakesList.map((entry) => (
+                        <div
+                          key={entry.id}
+                          className="px-3 py-1.5 rounded-xl text-xs flex items-center gap-2 border font-bold bg-slate-950 border-amber-500/40 text-amber-200"
+                        >
+                          <span className="w-2 h-2 rounded-full bg-red-500 animate-ping" />
+                          <span>{entry.name}</span>
+                          <span className="font-mono text-xs text-amber-400">({entry.lockedTier} pts lock)</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
             ) : (
               /* Answer Options with SECRET HIGHLIGHT + PLAYER NAMES WHO PICKED EACH */
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -1430,6 +1551,11 @@ export default function HostConsole({ onOpenDisplay, onRoomCodeReady }) {
                               <span className="truncate max-w-[90px] px-2 py-0.5 rounded bg-slate-800 text-cyan-200 text-xs" title={ans.textAnswer}>
                                 "{ans.textAnswer}"
                               </span>
+                              {activeQuestion.type === 'pa_sparet' && ans.lockedTier !== undefined && (
+                                <span className="text-[10px] text-amber-300 font-mono bg-amber-950/80 px-1 rounded">
+                                  {ans.lockedTier}p
+                                </span>
+                              )}
                               <span className={isCorrect ? 'text-emerald-400' : 'text-rose-400'}>
                                 {isCorrect ? '✓' : '✗'}
                               </span>

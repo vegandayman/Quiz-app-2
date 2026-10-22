@@ -1,10 +1,23 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { ref, onValue, get } from 'firebase/database';
 import { db } from '../firebase.js';
 import WorldMap from './WorldMap.jsx';
 import { findClosestPlayers, calculateFocusBounds } from '../utils/geoDistance.js';
+import { extractYouTubeId, playTrainWhistleSound, playClueChimeSound } from '../data/paSparetPresets.js';
 
 // Clean inline SVGs (zero external dependencies)
+const TrainIcon = ({ className = 'w-5 h-5' }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect width="16" height="16" x="4" y="3" rx="2" />
+    <path d="M4 11h16" />
+    <path d="M12 3v8" />
+    <path d="m8 19-2 3" />
+    <path d="m18 22-2-3" />
+    <circle cx="8" cy="15" r="1" fill="currentColor" />
+    <circle cx="16" cy="15" r="1" fill="currentColor" />
+  </svg>
+);
+
 const MapPinIcon = ({ className = 'w-5 h-5' }) => (
   <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z" />
@@ -117,6 +130,9 @@ export default function LiveDisplay({ roomCode: initialRoomCode = '' }) {
 
   const [roomData, setRoomData] = useState(null);
   const [timeLeft, setTimeLeft] = useState(20);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const whistlePlayedForQRef = useRef(null);
+  const lastChimeTierRef = useRef(null);
 
   // Sync if roomCode prop changes
   useEffect(() => {
@@ -180,19 +196,53 @@ export default function LiveDisplay({ roomCode: initialRoomCode = '' }) {
 
   // Countdown timer effect
   useEffect(() => {
-    if (roomData?.status !== 'question') return;
+    if (roomData?.status !== 'question') {
+      whistlePlayedForQRef.current = null;
+      lastChimeTierRef.current = null;
+      return;
+    }
 
     const duration = roomData?.timeLimit || 60;
     const startTime = roomData?.questionStartTime || Date.now();
 
     const interval = setInterval(() => {
-      const elapsed = Math.floor((Date.now() - startTime) / 1000);
+      const elapsed = Math.max(0, Math.floor((Date.now() - startTime) / 1000));
       const remaining = Math.max(0, duration - elapsed);
       setTimeLeft(remaining);
-    }, 500);
+      setElapsedSeconds(elapsed);
+    }, 400);
 
     return () => clearInterval(interval);
   }, [roomData?.status, roomData?.questionStartTime, roomData?.timeLimit]);
+
+  // Sound effects for På Spåret
+  useEffect(() => {
+    if (roomData?.status !== 'question') return;
+    const currentQ = roomData?.questions?.[roomData?.currentQuestionIndex || 0];
+    if (currentQ?.type !== 'pa_sparet') return;
+
+    // Train whistle sound at round start
+    if (whistlePlayedForQRef.current !== roomData?.currentQuestionIndex) {
+      whistlePlayedForQRef.current = roomData?.currentQuestionIndex;
+      lastChimeTierRef.current = 10;
+      playTrainWhistleSound();
+    }
+
+    // Clue chime sounds at milestone tiers
+    if (elapsedSeconds >= 80 && lastChimeTierRef.current > 2) {
+      lastChimeTierRef.current = 2;
+      playClueChimeSound();
+    } else if (elapsedSeconds >= 60 && lastChimeTierRef.current > 4) {
+      lastChimeTierRef.current = 4;
+      playClueChimeSound();
+    } else if (elapsedSeconds >= 40 && lastChimeTierRef.current > 6) {
+      lastChimeTierRef.current = 6;
+      playClueChimeSound();
+    } else if (elapsedSeconds >= 20 && lastChimeTierRef.current > 8) {
+      lastChimeTierRef.current = 8;
+      playClueChimeSound();
+    }
+  }, [roomData?.status, roomData?.currentQuestionIndex, roomData?.questions, elapsedSeconds]);
 
   // ----------------------------------------------------
   // PIN ENTRY SCREEN (Join New Room)
@@ -368,6 +418,43 @@ export default function LiveDisplay({ roomCode: initialRoomCode = '' }) {
   const winnerPlayer = rankedMapPlayers.find((p) => p.isWinner);
   const revealStage = roomData?.revealStage || 1;
 
+  // På Spåret calculations
+  const isPaSparet = currentQuestion?.type === 'pa_sparet';
+
+  let activeTier = 10;
+  let nextDropSec = 20 - (elapsedSeconds % 20);
+  if (elapsedSeconds >= 80) {
+    activeTier = 2;
+    nextDropSec = 0;
+  } else if (elapsedSeconds >= 60) {
+    activeTier = 4;
+    nextDropSec = 80 - elapsedSeconds;
+  } else if (elapsedSeconds >= 40) {
+    activeTier = 6;
+    nextDropSec = 60 - elapsedSeconds;
+  } else if (elapsedSeconds >= 20) {
+    activeTier = 8;
+    nextDropSec = 40 - elapsedSeconds;
+  } else {
+    activeTier = 10;
+    nextDropSec = 20 - elapsedSeconds;
+  }
+
+  const paSparetSubmissions = [];
+  players.forEach((p) => {
+    const ans = p.answers?.[currentQIndex];
+    if (ans !== undefined && ans.textAnswer !== undefined && isPaSparet) {
+      paSparetSubmissions.push({
+        playerId: p.id,
+        playerName: p.name,
+        text: ans.textAnswer,
+        isCorrect: ans.isCorrect,
+        pointsAwarded: ans.pointsAwarded || 0,
+        lockedTier: ans.lockedTier || 2
+      });
+    }
+  });
+
   const allSlides = roomData?.questions || [];
   const totalQuestions = allSlides.filter(q => q.type !== 'splash' && q.type !== 'end').length;
   const questionsPassed = allSlides.slice(0, currentQIndex + 1).filter(q => q.type !== 'splash' && q.type !== 'end').length;
@@ -542,16 +629,19 @@ export default function LiveDisplay({ roomCode: initialRoomCode = '' }) {
             <span className="px-3.5 py-1.5 rounded-xl bg-purple-900/60 border border-purple-700 text-purple-200 text-sm font-bold flex items-center gap-1.5">
               {isClosestPin && <MapPinIcon className="w-4 h-4 text-emerald-400" />}
               {isFreeInput && <KeyboardIcon className="w-4 h-4 text-cyan-400" />}
-              <span>{isClosestPin ? 'Closest-Wins Question' : isFreeInput ? 'Free-Text Question' : 'Question'} {questionsPassed} of {totalQuestions}</span>
+              {isPaSparet && <TrainIcon className="w-4 h-4 text-amber-400" />}
+              <span>{isClosestPin ? 'Closest-Wins Question' : isFreeInput ? 'Free-Text Question' : isPaSparet ? 'På Spåret Train Journey' : 'Question'} {questionsPassed} of {totalQuestions}</span>
             </span>
             <span className="px-3 py-1.5 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-300 text-xs font-mono font-bold">
-              {currentQuestion?.points !== undefined && currentQuestion.points !== '' ? currentQuestion.points : 1} {Number(currentQuestion?.points ?? 1) === 1 ? 'pt' : 'pts'}
+              {isPaSparet ? 'Max 10 pts' : `${currentQuestion?.points !== undefined && currentQuestion.points !== '' ? currentQuestion.points : 1} ${Number(currentQuestion?.points ?? 1) === 1 ? 'pt' : 'pts'}`}
             </span>
           </div>
 
           {!isReveal ? (
-            <div className="w-16 h-16 rounded-full bg-slate-900 border-2 border-purple-500 flex items-center justify-center shadow-lg shadow-purple-500/20">
-              <span className={`text-2xl font-black ${timeLeft <= 5 ? 'text-rose-400 animate-ping' : 'text-purple-300'}`}>
+            <div className={`w-16 h-16 rounded-full bg-slate-900 border-2 flex items-center justify-center shadow-lg ${
+              isPaSparet ? 'border-amber-500 shadow-amber-500/20' : 'border-purple-500 shadow-purple-500/20'
+            }`}>
+              <span className={`text-2xl font-black ${timeLeft <= 5 ? 'text-rose-400 animate-ping' : isPaSparet ? 'text-amber-300' : 'text-purple-300'}`}>
                 {timeLeft}
               </span>
             </div>
@@ -563,8 +653,8 @@ export default function LiveDisplay({ roomCode: initialRoomCode = '' }) {
 
           <div className="flex items-center gap-4">
             <div className="text-right">
-              <p className="text-xs uppercase tracking-wider text-slate-400 font-bold">Answers</p>
-              <p className="text-xl font-black text-slate-100">{totalAnswersSubmitted} / {players.length}</p>
+              <p className="text-xs uppercase tracking-wider text-slate-400 font-bold">{isPaSparet ? 'Brakes Pulled' : 'Answers'}</p>
+              <p className="text-xl font-black text-slate-100">{isPaSparet ? paSparetSubmissions.length : totalAnswersSubmitted} / {players.length}</p>
             </div>
 
             <button
@@ -577,10 +667,22 @@ export default function LiveDisplay({ roomCode: initialRoomCode = '' }) {
           </div>
         </header>
 
-        <main className="my-auto w-full max-w-5xl mx-auto flex flex-col items-center">
-          <div className="w-full bg-slate-900/90 border border-slate-800 rounded-3xl p-8 sm:p-12 text-center shadow-2xl mb-8">
+        <main className={`my-auto w-full mx-auto flex flex-col items-center transition-all duration-300 ${
+          isClosestPin || isPaSparet ? 'max-w-7xl 2xl:max-w-[95vw] px-2 sm:px-6' : 'max-w-5xl'
+        }`}>
+          <div className={`w-full bg-slate-900/90 border border-slate-800 rounded-3xl text-center shadow-2xl transition-all ${
+            (isClosestPin || isPaSparet) && isReveal ? 'p-4 sm:p-6 mb-4' : 'p-6 sm:p-8 mb-6'
+          }`}>
+            {isPaSparet && !isReveal && (
+              <div className="flex justify-center mb-2">
+                <span className="px-4 py-1 rounded-full bg-amber-500/20 border border-amber-500/50 text-amber-300 font-mono text-xs font-black uppercase tracking-wider flex items-center gap-2 shadow-lg">
+                  <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
+                  Active Tier: {activeTier} Points {nextDropSec > 0 ? `· Drops to ${activeTier - 2} pts in ${nextDropSec}s` : '· Final Stop!'}
+                </span>
+              </div>
+            )}
             <h2 className="text-2xl sm:text-4xl font-black tracking-tight text-white leading-snug">
-              {currentQuestion?.question || 'Get ready...'}
+              {currentQuestion?.question || 'Where are we heading? / Vart är vi på väg?'}
             </h2>
           </div>
 
@@ -590,11 +692,11 @@ export default function LiveDisplay({ roomCode: initialRoomCode = '' }) {
               /* Active Closest-Wins Question View */
               <div className="w-full bg-slate-900/90 border-2 border-emerald-500/40 rounded-3xl p-6 sm:p-10 text-center shadow-2xl relative overflow-hidden flex flex-col items-center">
                 {currentQuestion?.imageUrl ? (
-                  <div className="relative max-w-2xl w-full rounded-2xl overflow-hidden border-2 border-emerald-500/50 shadow-2xl shadow-emerald-950/60 mb-6 bg-slate-950">
+                  <div className="relative max-w-4xl 2xl:max-w-5xl w-full rounded-2xl overflow-hidden border-2 border-emerald-500/50 shadow-2xl shadow-emerald-950/60 mb-6 bg-slate-950">
                     <img
                       src={currentQuestion.imageUrl}
                       alt="Mystery Landmark"
-                      className="w-full max-h-[380px] sm:max-h-[440px] object-cover object-center"
+                      className="w-full h-[45vh] min-h-[320px] max-h-[580px] 2xl:h-[55vh] 2xl:max-h-[750px] object-cover object-center"
                     />
                     <div className="absolute top-3 left-3 px-3 py-1.5 rounded-full bg-slate-950/80 backdrop-blur-md border border-emerald-500/40 text-emerald-300 text-xs font-black uppercase tracking-wider flex items-center gap-1.5 shadow">
                       <MapPinIcon className="w-3.5 h-3.5 text-emerald-400" />
@@ -626,7 +728,7 @@ export default function LiveDisplay({ roomCode: initialRoomCode = '' }) {
               </div>
             ) : (
               /* Revealed Closest-Wins 4-Stage World Map View */
-              <div className="w-full space-y-6">
+              <div className="w-full space-y-4">
                 {/* 4-Stage Stepper Bar */}
                 <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-3 flex flex-wrap items-center justify-between gap-2 shadow-xl">
                   <div className="flex items-center gap-2">
@@ -661,8 +763,8 @@ export default function LiveDisplay({ roomCode: initialRoomCode = '' }) {
                   </div>
                 </div>
 
-                {/* Full Stage World Map */}
-                <div className="w-full h-[460px] sm:h-[540px] rounded-3xl overflow-hidden border-2 border-emerald-500/30 shadow-2xl relative">
+                {/* Full Stage World Map - Dynamically scales with viewport height and width */}
+                <div className="w-full h-[58vh] min-h-[460px] max-h-[820px] 2xl:h-[68vh] 2xl:max-h-[1050px] rounded-3xl overflow-hidden border-2 border-emerald-500/30 shadow-2xl relative">
                   <WorldMap
                     targetPin={{
                       lat: targetLat,
@@ -823,6 +925,241 @@ export default function LiveDisplay({ roomCode: initialRoomCode = '' }) {
                           <span className="text-xs">{sub.isCorrect ? '✓' : '✗'}</span>
                         </div>
                       ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )
+          ) : isPaSparet ? (
+            !isReveal ? (
+              /* Active På Spåret Train Journey Stage */
+              <div className="w-full space-y-4">
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-stretch">
+                  {/* Left Column: Train Cab View Video (7 cols) */}
+                  <div className="lg:col-span-7 bg-slate-900/90 border-2 border-amber-500/40 rounded-3xl p-4 shadow-2xl flex flex-col justify-between">
+                    <div className="flex items-center justify-between pb-3 px-1 border-b border-slate-800 mb-3">
+                      <div className="flex items-center gap-2">
+                        <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse" />
+                        <span className="text-xs font-mono font-bold tracking-wider text-slate-300 uppercase">
+                          CAB VIEW · LIVE TRACK CAM
+                        </span>
+                      </div>
+                      <span className="text-xs font-mono text-amber-400 bg-amber-950/70 border border-amber-800/80 px-2 py-0.5 rounded">
+                        Elapsed: {elapsedSeconds}s / {currentQuestion?.duration || 90}s
+                      </span>
+                    </div>
+
+                    <div className="relative w-full aspect-video rounded-2xl overflow-hidden bg-black border border-slate-800 shadow-inner">
+                      {extractYouTubeId(currentQuestion?.youtubeUrl) ? (
+                        <iframe
+                          className="w-full h-full object-cover"
+                          src={`https://www.youtube-nocookie.com/embed/${extractYouTubeId(currentQuestion.youtubeUrl)}?autoplay=1&mute=0&start=${Number(currentQuestion?.videoStartTime || 0)}&controls=1&rel=0&modestbranding=1`}
+                          title="På Spåret Train Journey"
+                          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                          allowFullScreen
+                        />
+                      ) : (
+                        <div className="w-full h-full flex flex-col items-center justify-center text-center p-6 bg-gradient-to-br from-slate-950 via-amber-950/20 to-slate-950">
+                          <TrainIcon className="w-16 h-16 text-amber-400/80 mb-3 animate-pulse" />
+                          <h4 className="text-lg font-bold text-white mb-1">Train In Transit</h4>
+                          <p className="text-xs text-slate-400 max-w-sm">
+                            Scenic rail route underway. Destination mystery clues are unlocking on the right!
+                          </p>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Emergency Brake Alert Ticker */}
+                    <div className="mt-4 pt-3 border-t border-slate-800 flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <span className="px-2.5 py-1 rounded-lg bg-red-600/30 border border-red-500/50 text-red-300 font-mono text-xs font-bold uppercase tracking-wider flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-red-400 animate-ping" />
+                          Emergency Brakes
+                        </span>
+                        <span className="text-xs font-bold text-slate-300">
+                          {paSparetSubmissions.length} of {players.length} players locked in
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1.5 overflow-x-auto max-w-md py-1">
+                        {paSparetSubmissions.map((sub, idx) => (
+                          <span
+                            key={idx}
+                            className="px-2.5 py-1 rounded-lg bg-amber-500/20 border border-amber-500/40 text-amber-200 text-xs font-bold whitespace-nowrap flex items-center gap-1"
+                          >
+                            <span>🛑 {sub.playerName}</span>
+                            <span className="text-[10px] font-mono text-amber-400">({sub.lockedTier}p)</span>
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Right Column: Progressive 5-Tier Clues Ladder (5 cols) */}
+                  <div className="lg:col-span-5 flex flex-col justify-between space-y-2.5">
+                    <div className="flex items-center justify-between px-1">
+                      <span className="text-xs font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
+                        <SparklesIcon className="w-4 h-4 text-amber-400" />
+                        5 Progressive Clues Ladder
+                      </span>
+                      <span className="text-xs font-mono text-slate-400">
+                        Higher speed = higher score
+                      </span>
+                    </div>
+
+                    {(currentQuestion?.clues || []).map((clue, idx) => {
+                      const isUnlocked = elapsedSeconds >= clue.timeSec;
+                      const isCurrentTier = activeTier === clue.tier;
+                      const secondsUntilUnlock = Math.max(0, clue.timeSec - elapsedSeconds);
+
+                      return (
+                        <div
+                          key={idx}
+                          className={`p-3.5 sm:p-4 rounded-2xl border-2 transition-all duration-300 ${
+                            isCurrentTier
+                              ? 'bg-amber-950/70 border-amber-400 shadow-lg shadow-amber-500/20 ring-2 ring-amber-400/40'
+                              : isUnlocked
+                                ? 'bg-slate-900/90 border-amber-500/40 shadow'
+                                : 'bg-slate-950/80 border-slate-800 opacity-60'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-2 mb-1.5">
+                            <span className={`px-2 py-0.5 rounded text-xs font-mono font-bold tracking-wider flex items-center gap-1 ${
+                              isCurrentTier
+                                ? 'bg-amber-400 text-slate-950 font-black'
+                                : isUnlocked
+                                  ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                                  : 'bg-slate-800 text-slate-400 border border-slate-700'
+                            }`}>
+                              {clue.tier} POINTS {isCurrentTier && '· ACTIVE'}
+                            </span>
+
+                            {!isUnlocked ? (
+                              <span className="text-[11px] font-mono text-amber-300/80">
+                                Unlocks in {secondsUntilUnlock}s
+                              </span>
+                            ) : (
+                              <span className="text-[11px] font-mono text-emerald-400">
+                                Unlocked ✓
+                              </span>
+                            )}
+                          </div>
+
+                          {isUnlocked ? (
+                            <p className="text-sm sm:text-base font-semibold text-white leading-relaxed">
+                              {clue.text}
+                            </p>
+                          ) : (
+                            <div className="space-y-1.5">
+                              <p className="text-xs font-mono text-slate-500 select-none blur-[3px]">
+                                {clue.text || 'Upcoming destination clue will be revealed soon...'}
+                              </p>
+                              <div className="w-full bg-slate-800 h-1 rounded-full overflow-hidden">
+                                <div
+                                  className="bg-amber-500 h-full transition-all duration-500"
+                                  style={{
+                                    width: `${Math.min(100, Math.max(0, ((elapsedSeconds - (clue.timeSec - 20)) / 20) * 100))}%`
+                                  }}
+                                />
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              /* Revealed På Spåret Stage */
+              <div className="w-full space-y-6">
+                {/* Grand Destination Reveal Card */}
+                <div className="w-full bg-gradient-to-b from-amber-950/60 via-slate-900 to-slate-900 border-2 border-amber-500 rounded-3xl p-8 sm:p-12 text-center shadow-2xl shadow-amber-950/50 relative overflow-hidden">
+                  <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-amber-500/20 border border-amber-500/50 text-amber-300 text-xs font-black uppercase tracking-wider mb-4">
+                    <TrainIcon className="w-4 h-4 text-amber-400" />
+                    <span>Train Destination Arrived</span>
+                  </div>
+                  <h3 className="text-4xl sm:text-6xl font-black text-transparent bg-clip-text bg-gradient-to-r from-amber-200 via-yellow-100 to-amber-300 tracking-tight">
+                    {currentQuestion.destination || currentQuestion.correctAnswer || 'Destination'}
+                  </h3>
+                  {currentQuestion.acceptedAnswers && (
+                    <p className="text-xs sm:text-sm text-amber-300/80 mt-2 font-medium">
+                      Accepted answers:{' '}
+                      {Array.isArray(currentQuestion.acceptedAnswers)
+                        ? currentQuestion.acceptedAnswers.join(', ')
+                        : currentQuestion.acceptedAnswers}
+                    </p>
+                  )}
+                  {currentQuestion.secretNote && (
+                    <div className="mt-4 p-3 rounded-2xl bg-slate-950/60 border border-amber-500/30 max-w-2xl mx-auto text-xs text-slate-300 text-left flex items-start gap-2.5">
+                      <SparklesIcon className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                      <span><strong className="text-white">Did you know?</strong> {currentQuestion.secretNote}</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* 5 Clues Recap */}
+                <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-6 shadow-xl">
+                  <span className="text-xs font-bold uppercase tracking-wider text-slate-400 block mb-3">
+                    Journey Clues Recap:
+                  </span>
+                  <div className="grid grid-cols-1 sm:grid-cols-5 gap-3">
+                    {(currentQuestion?.clues || []).map((clue, idx) => (
+                      <div key={idx} className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 flex flex-col justify-between">
+                        <span className="px-2 py-0.5 rounded bg-amber-500/20 border border-amber-500/40 text-amber-300 font-mono text-xs font-bold self-start mb-2">
+                          {clue.tier} PTS
+                        </span>
+                        <p className="text-xs text-slate-300 font-medium leading-relaxed">
+                          {clue.text}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Emergency Brakes / Player Scoring Breakdown */}
+                <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
+                  <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+                    <span className="text-xs font-bold uppercase tracking-wider text-slate-300">
+                      Emergency Brake Results ({paSparetSubmissions.filter((s) => s.isCorrect).length} of {paSparetSubmissions.length} Correct)
+                    </span>
+                    <span className="text-xs font-mono text-amber-400">
+                      Scored by tier pulled
+                    </span>
+                  </div>
+
+                  {paSparetSubmissions.length === 0 ? (
+                    <p className="text-xs text-slate-500 italic text-center py-4">
+                      No players pulled the emergency brake for this question.
+                    </p>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                      {paSparetSubmissions
+                        .sort((a, b) => (b.pointsAwarded - a.pointsAwarded))
+                        .map((sub, idx) => (
+                          <div
+                            key={idx}
+                            className={`p-3 rounded-2xl border flex items-center justify-between gap-3 ${
+                              sub.isCorrect
+                                ? 'bg-emerald-950/40 border-emerald-500/50 text-white'
+                                : 'bg-rose-950/40 border-rose-500/50 text-rose-200'
+                            }`}
+                          >
+                            <div className="truncate">
+                              <p className="text-xs font-bold truncate">{sub.playerName}</p>
+                              <p className="text-[11px] font-mono text-slate-300 truncate">"{sub.text}"</p>
+                            </div>
+                            <div className="text-right shrink-0">
+                              <span className={`px-2.5 py-1 rounded-xl font-mono text-xs font-black ${
+                                sub.isCorrect ? 'bg-emerald-500 text-slate-950' : 'bg-slate-800 text-slate-400'
+                              }`}>
+                                {sub.isCorrect ? `+${sub.pointsAwarded} pts` : '0 pts'}
+                              </span>
+                              <p className="text-[10px] font-mono text-slate-400 mt-0.5">
+                                Locked at {sub.lockedTier}p
+                              </p>
+                            </div>
+                          </div>
+                        ))}
                     </div>
                   )}
                 </div>
