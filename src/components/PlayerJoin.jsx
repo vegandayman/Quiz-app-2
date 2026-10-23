@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { ref, get, set, push, onValue, update } from 'firebase/database';
 import { db } from '../firebase.js';
 import { checkFreeInputAnswer } from '../utils/answerMatcher.js';
@@ -111,7 +111,7 @@ const answerButtons = [
  * - Dynamic score calculation based on question points and speed bonus
  * - Dynamic feedback for Reveal, Leaderboard, and Final Winner Podium
  */
-export default function PlayerJoin({ initialRoomCode = '' }) {
+export default function PlayerJoin({ initialRoomCode = '', onOpenHost }) {
   const getInitialPin = () => {
     if (initialRoomCode) return initialRoomCode;
     if (typeof window !== 'undefined') {
@@ -1394,7 +1394,25 @@ export default function PlayerJoin({ initialRoomCode = '' }) {
         </div>
       </main>
 
-      <footer className="text-slate-600 text-xs">QuizPulse Realtime Multiplayer</footer>
+      <footer className="text-slate-600 text-xs flex flex-col items-center gap-2">
+        <span>QuizPulse Realtime Multiplayer</span>
+        <button
+          type="button"
+          onClick={() => {
+            if (onOpenHost) {
+              onOpenHost();
+            } else if (typeof window !== 'undefined') {
+              const url = new URL(window.location.href);
+              url.searchParams.set('role', 'host');
+              window.location.href = url.toString();
+            }
+          }}
+          className="text-[11px] text-slate-500 hover:text-purple-400 transition-colors cursor-pointer flex items-center gap-1 py-1 px-2.5 rounded-md hover:bg-slate-900/60"
+        >
+          <span>Host a Quiz</span>
+          <span aria-hidden="true">&rarr;</span>
+        </button>
+      </footer>
     </div>
   );
 }

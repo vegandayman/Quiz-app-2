@@ -118,7 +118,7 @@ const shapes = [
  * - Shows Lobby (Big PIN), Questions, Timer, Revealed Answers with Vote Distribution, and Leaderboard
  * - Celebratory Olympic Podium for the Finished game stage
  */
-export default function LiveDisplay({ roomCode: initialRoomCode = '' }) {
+export default function LiveDisplay({ roomCode: initialRoomCode = '', onSwitchToHost }) {
   const getInitialPin = () => {
     if (initialRoomCode) return initialRoomCode;
     if (typeof window !== 'undefined') {
