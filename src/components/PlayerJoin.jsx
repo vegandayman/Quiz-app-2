@@ -223,15 +223,20 @@ export default function PlayerJoin({ initialRoomCode = '' }) {
     }
   };
 
+  const lastQuestionIndexRef = useRef(null);
+
   // Leave / Join New Room Action
   const handleLeaveAndJoinNew = () => {
     setIsJoined(false);
     setJoinedRoomCode('');
     setCurrentPlayerId('');
     setMyAnswer(null);
+    setSelectedPin(null);
+    setPlayerTextInput('');
     setRoomData(null);
     setRoomCode('');
     setErrorMessage('');
+    lastQuestionIndexRef.current = null;
   };
 
   // Real-time listener for room updates once joined
@@ -247,7 +252,9 @@ export default function PlayerJoin({ initialRoomCode = '' }) {
       setRoomData(data);
 
       const qIndex = data.currentQuestionIndex || 0;
+      const isNewQuestion = lastQuestionIndexRef.current !== qIndex;
       const myAnswers = data.players?.[currentPlayerId]?.answers;
+
       if (myAnswers && myAnswers[qIndex] !== undefined) {
         const curAns = myAnswers[qIndex];
         setMyAnswer(
@@ -264,10 +271,18 @@ export default function PlayerJoin({ initialRoomCode = '' }) {
         }
       } else {
         setMyAnswer(null);
-        setSelectedPin(null);
-        setPlayerTextInput('');
-        setIsMapExpanded(false);
-        setShowPhotoModal(false);
+        // CRITICAL FIX: Only reset local unsubmitted draft inputs when moving to a brand new question!
+        // Never clear the player's placed pin or text draft when another player submits in real-time.
+        if (isNewQuestion) {
+          setSelectedPin(null);
+          setPlayerTextInput('');
+          setIsMapExpanded(false);
+          setShowPhotoModal(false);
+        }
+      }
+
+      if (isNewQuestion) {
+        lastQuestionIndexRef.current = qIndex;
       }
     });
 

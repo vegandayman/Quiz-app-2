@@ -245,3 +245,101 @@ export function calculateFocusBounds(targetLat, targetLng, rankedPlayers = []) {
 
   return { minLat, maxLat, minLng, maxLng };
 }
+
+/**
+ * Calculate bounding box { minLat, maxLat, minLng, maxLng }
+ * encompassing ALL player guesses with comfortable padding.
+ * When players' guesses are revealed in Step 2, zooms in so all guesses
+ * are clearly visible together without showing the entire world.
+ */
+export function calculateGuessesBounds(rankedPlayers = []) {
+  const guesses = (rankedPlayers || []).filter(
+    (p) => p.hasGuessed && p.lat !== undefined && p.lng !== undefined && !isNaN(p.lat) && !isNaN(p.lng)
+  );
+
+  if (guesses.length === 0) {
+    return null;
+  }
+
+  let minLat = guesses[0].lat;
+  let maxLat = guesses[0].lat;
+  let minLng = guesses[0].lng;
+  let maxLng = guesses[0].lng;
+
+  guesses.forEach((pt) => {
+    if (pt.lat < minLat) minLat = pt.lat;
+    if (pt.lat > maxLat) maxLat = pt.lat;
+    if (pt.lng < minLng) minLng = pt.lng;
+    if (pt.lng > maxLng) maxLng = pt.lng;
+  });
+
+  const latSpan = maxLat - minLat;
+  const lngSpan = maxLng - minLng;
+
+  // If guesses span nearly the whole globe, return null (stays on full world map)
+  if (latSpan > 115 || lngSpan > 250) {
+    return null;
+  }
+
+  // Generous padding around the player guesses cluster (at least ~8 degrees lat, 14 degrees lng)
+  const padLat = Math.max(8, latSpan * 0.35);
+  const padLng = Math.max(14, lngSpan * 0.35);
+
+  minLat = Math.max(-80, minLat - padLat);
+  maxLat = Math.min(80, maxLat + padLat);
+  minLng = Math.max(-175, minLng - padLng);
+  maxLng = Math.min(175, maxLng + padLng);
+
+  return { minLat, maxLat, minLng, maxLng };
+}
+
+/**
+ * Calculate bounding box encompassing the target landmark AND all player guesses.
+ * Used during Step 3 to keep both the actual destination star and all guesses visible.
+ */
+export function calculateTargetAndGuessesBounds(targetLat, targetLng, rankedPlayers = []) {
+  const points = [];
+  if (targetLat !== undefined && targetLng !== undefined && !isNaN(targetLat) && !isNaN(targetLng)) {
+    points.push({ lat: Number(targetLat), lng: Number(targetLng) });
+  }
+
+  const guesses = (rankedPlayers || []).filter(
+    (p) => p.hasGuessed && p.lat !== undefined && p.lng !== undefined && !isNaN(p.lat) && !isNaN(p.lng)
+  );
+  guesses.forEach((p) => {
+    points.push({ lat: Number(p.lat), lng: Number(p.lng) });
+  });
+
+  if (points.length === 0) {
+    return null;
+  }
+
+  let minLat = points[0].lat;
+  let maxLat = points[0].lat;
+  let minLng = points[0].lng;
+  let maxLng = points[0].lng;
+
+  points.forEach((pt) => {
+    if (pt.lat < minLat) minLat = pt.lat;
+    if (pt.lat > maxLat) maxLat = pt.lat;
+    if (pt.lng < minLng) minLng = pt.lng;
+    if (pt.lng > maxLng) maxLng = pt.lng;
+  });
+
+  const latSpan = maxLat - minLat;
+  const lngSpan = maxLng - minLng;
+
+  if (latSpan > 125 || lngSpan > 260) {
+    return null;
+  }
+
+  const padLat = Math.max(9, latSpan * 0.3);
+  const padLng = Math.max(15, lngSpan * 0.3);
+
+  minLat = Math.max(-80, minLat - padLat);
+  maxLat = Math.min(80, maxLat + padLat);
+  minLng = Math.max(-175, minLng - padLng);
+  maxLng = Math.min(175, maxLng + padLng);
+
+  return { minLat, maxLat, minLng, maxLng };
+}

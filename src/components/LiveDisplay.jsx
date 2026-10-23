@@ -2,7 +2,12 @@ import React, { useState, useEffect, useRef } from 'react';
 import { ref, onValue, get } from 'firebase/database';
 import { db } from '../firebase.js';
 import WorldMap from './WorldMap.jsx';
-import { findClosestPlayers, calculateFocusBounds } from '../utils/geoDistance.js';
+import {
+  findClosestPlayers,
+  calculateFocusBounds,
+  calculateGuessesBounds,
+  calculateTargetAndGuessesBounds
+} from '../utils/geoDistance.js';
 import { extractYouTubeId, playTrainWhistleSound, playClueChimeSound } from '../data/paSparetPresets.js';
 
 // Clean inline SVGs (zero external dependencies)
@@ -414,9 +419,25 @@ export default function LiveDisplay({ roomCode: initialRoomCode = '' }) {
   });
 
   const rankedMapPlayers = findClosestPlayers(targetLat, targetLng, mapPlayersList, unit);
-  const focusBounds = calculateFocusBounds(targetLat, targetLng, rankedMapPlayers);
+  const winnerFocusBounds = calculateFocusBounds(targetLat, targetLng, rankedMapPlayers);
+  const guessesBounds = calculateGuessesBounds(rankedMapPlayers);
+  const targetAndGuessesBounds = calculateTargetAndGuessesBounds(targetLat, targetLng, rankedMapPlayers);
   const winnerPlayer = rankedMapPlayers.find((p) => p.isWinner);
   const revealStage = roomData?.revealStage || 1;
+
+  // Smart regional camera zoom:
+  // Step 1: null (Pristine full world map)
+  // Step 2: guessesBounds (Zoom in enough so all guesses are visible without seeing whole world)
+  // Step 3: targetAndGuessesBounds (Framing all guesses and the actual landmark star)
+  // Step 4: winnerFocusBounds (Tight cinematic zoom on target & closest winner)
+  let activeFocusBounds = null;
+  if (revealStage === 2) {
+    activeFocusBounds = guessesBounds;
+  } else if (revealStage === 3) {
+    activeFocusBounds = targetAndGuessesBounds || guessesBounds;
+  } else if (revealStage >= 4) {
+    activeFocusBounds = winnerFocusBounds;
+  }
 
   // På Spåret calculations
   const isPaSparet = currentQuestion?.type === 'pa_sparet';
@@ -742,7 +763,7 @@ export default function LiveDisplay({ roomCode: initialRoomCode = '' }) {
                         showTarget={true}
                         showPlayerPins={true}
                         showDistanceLines={true}
-                        focusBounds={focusBounds}
+                        focusBounds={activeFocusBounds}
                         className="w-full h-full"
                       />
                     </div>
@@ -828,7 +849,7 @@ export default function LiveDisplay({ roomCode: initialRoomCode = '' }) {
                       showTarget={revealStage >= 3}
                       showPlayerPins={revealStage >= 2}
                       showDistanceLines={revealStage >= 3}
-                      focusBounds={null}
+                      focusBounds={activeFocusBounds}
                       className="w-full h-full"
                     />
                   </div>

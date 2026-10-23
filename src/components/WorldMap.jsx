@@ -111,7 +111,7 @@ export default function WorldMap({
     return () => {
       if (animRef.current) cancelAnimationFrame(animRef.current);
     };
-  }, [focusBounds]);
+  }, [focusBounds?.minLat, focusBounds?.maxLat, focusBounds?.minLng, focusBounds?.maxLng]);
 
   /**
    * Convert client (screen) coordinates to SVG coordinate space using the browser's
