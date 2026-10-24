@@ -602,7 +602,7 @@ export default function LiveDisplay({ roomCode: initialRoomCode = '', onSwitchTo
           <div className="flex items-center gap-3">
             <span className="px-3.5 py-1.5 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-300 text-xs font-bold uppercase tracking-wider flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
-              Round Announcement
+              {currentQuestion?.badge || (currentQuestion?.rules?.length ? 'Quiz Intro & Rules' : 'Round Announcement')}
             </span>
             <span className="text-xs text-slate-400 font-medium">
               Slide {currentQIndex + 1} of {roomData.questions?.length || 1}
@@ -626,41 +626,181 @@ export default function LiveDisplay({ roomCode: initialRoomCode = '', onSwitchTo
         </header>
 
         {/* Main Splash Centerstage */}
-        <main className="my-auto w-full max-w-4xl mx-auto flex flex-col items-center text-center relative z-10 py-6">
-          <div className="inline-block mb-4">
-            <span className="px-4 py-1.5 rounded-full bg-gradient-to-r from-amber-500/20 via-purple-500/20 to-pink-500/20 border border-amber-500/30 text-amber-300 text-xs font-mono font-bold uppercase tracking-widest shadow-lg">
-              Next Up
-            </span>
-          </div>
-
-          <h1 className="text-4xl sm:text-6xl md:text-7xl font-black tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-white via-amber-200 to-purple-200 drop-shadow-[0_10px_35px_rgba(245,158,11,0.25)] mb-4 leading-tight">
-            {currentQuestion?.title || 'Now the Music Round!'}
-          </h1>
-
-          {currentQuestion?.subtitle && (
-            <p className="text-lg sm:text-2xl text-slate-300 font-medium max-w-2xl mx-auto mb-8 leading-relaxed">
-              {currentQuestion.subtitle}
-            </p>
-          )}
-
-          {currentQuestion?.imageUrl && (
-            <div className="relative max-w-xl w-full mx-auto rounded-3xl overflow-hidden border-2 border-purple-500/40 shadow-2xl shadow-purple-900/50 bg-slate-900/80 my-2">
-              <img
-                src={currentQuestion.imageUrl}
-                alt={currentQuestion.title || 'Splash banner'}
-                className="w-full max-h-[380px] sm:max-h-[440px] object-cover object-center"
-                onError={(e) => {
-                  e.target.style.display = 'none';
-                }}
-              />
+        {Array.isArray(currentQuestion?.rules) && currentQuestion.rules.length > 0 ? (
+          <main className="my-auto w-full max-w-6xl mx-auto flex flex-col items-center text-center relative z-10 py-4 sm:py-6">
+            <div className="inline-block mb-3">
+              <span className="px-4 py-1.5 rounded-full bg-gradient-to-r from-amber-500/20 via-purple-500/20 to-pink-500/20 border border-amber-500/30 text-amber-300 text-xs font-mono font-bold uppercase tracking-widest shadow-lg flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
+                {currentQuestion?.badge || 'Quiz Intro & Rules'}
+              </span>
             </div>
-          )}
-        </main>
+
+            <h1 className="text-3xl sm:text-5xl md:text-6xl font-black tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-white via-amber-200 to-purple-200 drop-shadow-[0_10px_35px_rgba(245,158,11,0.25)] mb-3 leading-tight">
+              {currentQuestion?.title || 'Welcome to QuizPulse Live!'}
+            </h1>
+
+            {currentQuestion?.subtitle && (
+              <p className="text-sm sm:text-lg text-slate-300 font-medium max-w-3xl mx-auto mb-6 leading-relaxed">
+                {currentQuestion.subtitle}
+              </p>
+            )}
+
+            {/* Layout with Image + Rules Grid */}
+            {currentQuestion?.imageUrl ? (
+              <div className="w-full grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch text-left mt-1">
+                {/* Left Column: Image banner + Pro Tip Callout */}
+                <div className="lg:col-span-5 flex flex-col gap-3.5">
+                  <div className="relative rounded-3xl overflow-hidden border-2 border-purple-500/40 shadow-2xl shadow-purple-950/60 bg-slate-900/90 flex-1 min-h-[220px]">
+                    <img
+                      src={currentQuestion.imageUrl}
+                      alt={currentQuestion.title || 'Splash banner'}
+                      className="w-full h-full object-cover object-center max-h-[340px]"
+                      onError={(e) => {
+                        e.target.style.display = 'none';
+                      }}
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-transparent to-transparent pointer-events-none" />
+                  </div>
+
+                  {/* Speed Tie-Breaker Notice Banner */}
+                  <div className="p-4 rounded-2xl bg-gradient-to-r from-amber-500/15 to-orange-500/10 border border-amber-500/40 text-amber-200 flex items-start gap-3 shadow-lg">
+                    <div className="p-2 rounded-xl bg-amber-500/20 text-amber-300 text-lg flex-shrink-0">
+                      ⚡
+                    </div>
+                    <div className="text-xs">
+                      <span className="font-bold text-amber-300 uppercase tracking-wider block text-[11px]">
+                        The Tie-Breaker Rule
+                      </span>
+                      <span className="text-slate-300 leading-normal">
+                        Speed does <strong className="text-white">not</strong> award points on questions, but total answer time is recorded. If players tie for 1st place, lowest time takes gold!
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Right Column: 4 Rules Cards (2x2 grid) */}
+                <div className="lg:col-span-7 grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                  {currentQuestion.rules.map((rule, idx) => {
+                    const isTieBreak = rule.highlight === 'Tie-Breaker Only' || rule.title?.toLowerCase().includes('speed');
+                    return (
+                      <div
+                        key={idx}
+                        className={`p-4 sm:p-5 rounded-2xl border transition-all ${
+                          isTieBreak
+                            ? 'bg-gradient-to-br from-amber-950/30 to-slate-900/90 border-amber-500/60 shadow-xl shadow-amber-950/30 ring-1 ring-amber-500/30'
+                            : 'bg-slate-900/80 border-slate-800 hover:border-slate-700 shadow-lg'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between mb-2.5">
+                          <span className="text-2xl p-2 rounded-xl bg-slate-950/80 border border-slate-800 shadow-inner">
+                            {rule.icon}
+                          </span>
+                          {rule.highlight && (
+                            <span
+                              className={`text-[10px] font-mono font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${
+                                isTieBreak
+                                  ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 animate-pulse'
+                                  : 'bg-purple-500/20 text-purple-300 border-purple-500/30'
+                              }`}
+                            >
+                              {rule.highlight}
+                            </span>
+                          )}
+                        </div>
+                        <h3 className={`font-bold text-sm sm:text-base mb-1.5 ${isTieBreak ? 'text-amber-300' : 'text-white'}`}>
+                          {rule.title}
+                        </h3>
+                        <p className="text-xs text-slate-300 leading-relaxed font-normal">
+                          {rule.description}
+                        </p>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : (
+              /* Centered 4-card grid when no image */
+              <div className="w-full grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-left mt-4">
+                {currentQuestion.rules.map((rule, idx) => {
+                  const isTieBreak = rule.highlight === 'Tie-Breaker Only' || rule.title?.toLowerCase().includes('speed');
+                  return (
+                    <div
+                      key={idx}
+                      className={`p-5 rounded-2xl border ${
+                        isTieBreak
+                          ? 'bg-gradient-to-br from-amber-950/30 to-slate-900/90 border-amber-500/60 shadow-xl ring-1 ring-amber-500/30'
+                          : 'bg-slate-900/80 border-slate-800'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-3">
+                        <span className="text-3xl p-2.5 rounded-2xl bg-slate-950/80 border border-slate-800 shadow-inner">
+                          {rule.icon}
+                        </span>
+                        {rule.highlight && (
+                          <span
+                            className={`text-[10px] font-mono font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${
+                              isTieBreak
+                                ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                                : 'bg-purple-500/20 text-purple-300 border-purple-500/30'
+                            }`}
+                          >
+                            {rule.highlight}
+                          </span>
+                        )}
+                      </div>
+                      <h3 className={`font-bold text-base mb-2 ${isTieBreak ? 'text-amber-300' : 'text-white'}`}>
+                        {rule.title}
+                      </h3>
+                      <p className="text-xs text-slate-300 leading-relaxed">
+                        {rule.description}
+                      </p>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </main>
+        ) : (
+          <main className="my-auto w-full max-w-4xl mx-auto flex flex-col items-center text-center relative z-10 py-6">
+            <div className="inline-block mb-4">
+              <span className="px-4 py-1.5 rounded-full bg-gradient-to-r from-amber-500/20 via-purple-500/20 to-pink-500/20 border border-amber-500/30 text-amber-300 text-xs font-mono font-bold uppercase tracking-widest shadow-lg">
+                {currentQuestion?.badge || 'Next Up'}
+              </span>
+            </div>
+
+            <h1 className="text-4xl sm:text-6xl md:text-7xl font-black tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-white via-amber-200 to-purple-200 drop-shadow-[0_10px_35px_rgba(245,158,11,0.25)] mb-4 leading-tight">
+              {currentQuestion?.title || 'Now the Music Round!'}
+            </h1>
+
+            {currentQuestion?.subtitle && (
+              <p className="text-lg sm:text-2xl text-slate-300 font-medium max-w-2xl mx-auto mb-8 leading-relaxed">
+                {currentQuestion.subtitle}
+              </p>
+            )}
+
+            {currentQuestion?.imageUrl && (
+              <div className="relative max-w-xl w-full mx-auto rounded-3xl overflow-hidden border-2 border-purple-500/40 shadow-2xl shadow-purple-900/50 bg-slate-900/80 my-2">
+                <img
+                  src={currentQuestion.imageUrl}
+                  alt={currentQuestion.title || 'Splash banner'}
+                  className="w-full max-h-[380px] sm:max-h-[440px] object-cover object-center"
+                  onError={(e) => {
+                    e.target.style.display = 'none';
+                  }}
+                />
+              </div>
+            )}
+          </main>
+        )}
 
         {/* Bottom Banner */}
         <footer className="text-center text-slate-400 text-xs relative z-10 flex items-center justify-center gap-2">
           <span className="w-2 h-2 rounded-full bg-purple-400 animate-pulse" />
-          <span>Quiz Master will begin the round shortly...</span>
+          <span>
+            {currentQuestion?.rules?.length
+              ? 'Quiz Master will begin Question 1 shortly... Get ready!'
+              : 'Quiz Master will begin the round shortly...'}
+          </span>
         </footer>
       </div>
     );

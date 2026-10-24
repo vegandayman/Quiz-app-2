@@ -2,6 +2,7 @@ import React, { useState, useRef } from 'react';
 import { checkFreeInputAnswer } from '../utils/answerMatcher.js';
 import { LANDMARK_PRESETS } from '../utils/geoDistance.js';
 import { PA_SPARET_PRESETS, extractYouTubeId } from '../data/paSparetPresets.js';
+import { DEFAULT_INTRO_RULES_SPLASH, DEFAULT_RULES_LIST } from '../data/introSplashDefaults.js';
 import WorldMap from './WorldMap.jsx';
 
 // Clean inline SVGs (zero external dependencies)
@@ -136,6 +137,14 @@ const shapes = [
 // Curated themes & presets for fast splash creation
 const splashPresets = [
   {
+    name: '📜 Quiz Intro & Rules',
+    badge: 'Quiz Intro & Rules',
+    title: 'Welcome to QuizPulse Live!',
+    subtitle: 'Grab a drink, get comfortable, and warm up your thumbs! Here is how to play and win.',
+    imageUrl: 'https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?auto=format&fit=crop&w=1200&q=80',
+    rules: DEFAULT_RULES_LIST
+  },
+  {
     name: '🎵 Music Round',
     title: 'Now the Music Round!',
     subtitle: 'Listen closely and name these iconic tunes and artists.',
@@ -217,9 +226,11 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
           return {
             id: q.id || Date.now(),
             type: 'splash',
+            badge: q.badge || (q.rules?.length ? 'Quiz Intro & Rules' : 'Round Announcement'),
             title: q.title || 'Now the Music Round!',
             subtitle: q.subtitle || '',
-            imageUrl: q.imageUrl || ''
+            imageUrl: q.imageUrl || '',
+            rules: Array.isArray(q.rules) ? q.rules : undefined
           };
         }
         if (q.type === 'closest_pin') {
@@ -284,6 +295,7 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
     }
 
     return [
+      DEFAULT_INTRO_RULES_SPLASH,
       {
         id: 1,
         type: 'question',
@@ -655,12 +667,91 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
     const updated = [...questions];
     updated[activeIdx] = {
       ...updated[activeIdx],
+      badge: preset.badge || (preset.rules?.length ? 'Quiz Intro & Rules' : 'Round Announcement'),
       title: preset.title,
       subtitle: preset.subtitle,
-      imageUrl: preset.imageUrl
+      imageUrl: preset.imageUrl,
+      rules: preset.rules ? JSON.parse(JSON.stringify(preset.rules)) : undefined
     };
     setQuestions(updated);
     showNotification(`Applied preset "${preset.name}"!`);
+  };
+
+  // Rules Explainer Helpers for Splash Slides
+  const handleEnableRules = () => {
+    const updated = [...questions];
+    updated[activeIdx] = {
+      ...updated[activeIdx],
+      badge: updated[activeIdx].badge || 'Quiz Intro & Rules',
+      rules: JSON.parse(JSON.stringify(DEFAULT_RULES_LIST))
+    };
+    setQuestions(updated);
+    showNotification('Rules explainer cards enabled for this splash screen!');
+  };
+
+  const handleDisableRules = () => {
+    const updated = [...questions];
+    const item = { ...updated[activeIdx] };
+    delete item.rules;
+    updated[activeIdx] = item;
+    setQuestions(updated);
+    showNotification('Rules explainer cards removed.');
+  };
+
+  const handleUpdateRule = (ruleIndex, field, value) => {
+    const updated = [...questions];
+    const rules = Array.isArray(updated[activeIdx].rules) ? [...updated[activeIdx].rules] : [];
+    if (!rules[ruleIndex]) return;
+    rules[ruleIndex] = {
+      ...rules[ruleIndex],
+      [field]: value
+    };
+    updated[activeIdx] = {
+      ...updated[activeIdx],
+      rules
+    };
+    setQuestions(updated);
+  };
+
+  const handleAddRuleItem = () => {
+    const updated = [...questions];
+    const rules = Array.isArray(updated[activeIdx].rules) ? [...updated[activeIdx].rules] : [];
+    if (rules.length >= 6) {
+      showNotification('Maximum of 6 rule cards recommended for display layout.');
+      return;
+    }
+    rules.push({
+      icon: '💡',
+      title: 'Bonus Rule',
+      highlight: 'Tip',
+      description: 'Write your custom rule explanation here!'
+    });
+    updated[activeIdx] = {
+      ...updated[activeIdx],
+      rules
+    };
+    setQuestions(updated);
+  };
+
+  const handleDeleteRuleItem = (ruleIndex) => {
+    const updated = [...questions];
+    const rules = Array.isArray(updated[activeIdx].rules) ? [...updated[activeIdx].rules] : [];
+    rules.splice(ruleIndex, 1);
+    updated[activeIdx] = {
+      ...updated[activeIdx],
+      rules: rules.length > 0 ? rules : undefined
+    };
+    setQuestions(updated);
+  };
+
+  const handleResetToDefaultRules = () => {
+    const updated = [...questions];
+    updated[activeIdx] = {
+      ...updated[activeIdx],
+      rules: JSON.parse(JSON.stringify(DEFAULT_RULES_LIST))
+    };
+    setQuestions(updated);
+    showNotification('Reset to standard QuizPulse rules.');
   };
 
   // Export Quiz as JSON (including closest pin, free input, splash screens, points & scoreboard toggle)
@@ -687,9 +778,11 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
           return {
             id: q.id || idx + 1,
             type: 'splash',
+            badge: q.badge || (q.rules?.length ? 'Quiz Intro & Rules' : 'Round Announcement'),
             title: q.title || 'Splash Announcement',
             subtitle: q.subtitle || '',
-            imageUrl: q.imageUrl || ''
+            imageUrl: q.imageUrl || '',
+            rules: Array.isArray(q.rules) ? q.rules : undefined
           };
         }
 
@@ -835,9 +928,11 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
               ...q,
               id: q.id || idx + 1,
               type: 'splash',
+              badge: q.badge || (q.rules?.length ? 'Quiz Intro & Rules' : 'Round Announcement'),
               title: q.title || 'Splash Announcement',
               subtitle: q.subtitle || '',
-              imageUrl: q.imageUrl || ''
+              imageUrl: q.imageUrl || '',
+              rules: Array.isArray(q.rules) ? q.rules : undefined
             };
           }
 
@@ -1533,6 +1628,20 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
                   </span>
                 </div>
 
+                {/* Badge / Pill */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold uppercase tracking-wider text-slate-300">
+                    Badge / Category Pill
+                  </label>
+                  <input
+                    type="text"
+                    value={activeQ.badge || ''}
+                    onChange={(e) => handleUpdateActiveQuestion('badge', e.target.value)}
+                    placeholder="e.g. Quiz Intro & Rules or Round Announcement"
+                    className="w-full px-4 py-2.5 rounded-xl bg-slate-950 border border-slate-800 focus:border-amber-500 text-white text-sm outline-none transition-all"
+                  />
+                </div>
+
                 {/* Title */}
                 <div className="space-y-1.5">
                   <label className="text-xs font-bold uppercase tracking-wider text-slate-300">
@@ -1542,7 +1651,7 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
                     type="text"
                     value={activeQ.title || ''}
                     onChange={(e) => handleUpdateActiveQuestion('title', e.target.value)}
-                    placeholder="e.g. Now the Music Round! or Halfway Mark - Drink Break!"
+                    placeholder="e.g. Now the Music Round! or Welcome to QuizPulse Live!"
                     className="w-full px-4 py-3 rounded-2xl bg-slate-950 border border-slate-800 focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 text-white text-lg sm:text-xl font-bold outline-none transition-all"
                   />
                 </div>
@@ -1644,6 +1753,151 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
                 </div>
               </div>
 
+              {/* Rules Explainer Cards Section */}
+              <div className="bg-slate-900 border border-amber-500/40 rounded-3xl p-6 shadow-xl space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-800">
+                  <div className="flex items-center gap-2">
+                    <span className="text-base">📜</span>
+                    <span className="text-sm font-bold text-white uppercase tracking-wider">
+                      Quiz Rules & Scoring Explainer
+                    </span>
+                    {Array.isArray(activeQ.rules) && activeQ.rules.length > 0 && (
+                      <span className="px-2 py-0.5 rounded-full bg-amber-500/20 border border-amber-500/40 text-[10px] font-mono text-amber-300 font-bold">
+                        {activeQ.rules.length} Rules Active
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {Array.isArray(activeQ.rules) && activeQ.rules.length > 0 ? (
+                      <>
+                        <button
+                          type="button"
+                          onClick={handleResetToDefaultRules}
+                          className="px-3 py-1.5 rounded-xl bg-slate-950 hover:bg-slate-800 border border-slate-800 text-xs text-slate-300 hover:text-white font-semibold transition-all cursor-pointer"
+                        >
+                          Reset to Standard Rules
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleDisableRules}
+                          className="px-3 py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-xs text-rose-300 font-semibold transition-all cursor-pointer"
+                        >
+                          Remove Rules
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={handleEnableRules}
+                        className="px-4 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 text-xs font-black transition-all cursor-pointer shadow-md flex items-center gap-1.5"
+                      >
+                        <span>+ Enable Rules Explainer Cards</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {Array.isArray(activeQ.rules) && activeQ.rules.length > 0 ? (
+                  <div className="space-y-4">
+                    <p className="text-xs text-slate-400">
+                      These rule cards are displayed prominently on the live TV display and on player mobile devices during this intro screen.
+                    </p>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                      {activeQ.rules.map((rule, rIdx) => {
+                        const isTieBreak = rule.highlight === 'Tie-Breaker Only' || rule.title?.toLowerCase().includes('speed');
+                        return (
+                          <div
+                            key={rIdx}
+                            className={`p-4 rounded-2xl border space-y-3 relative ${
+                              isTieBreak
+                                ? 'bg-amber-950/20 border-amber-500/50 shadow-md ring-1 ring-amber-500/20'
+                                : 'bg-slate-950/70 border-slate-800'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-2 flex-1">
+                                <input
+                                  type="text"
+                                  value={rule.icon || ''}
+                                  onChange={(e) => handleUpdateRule(rIdx, 'icon', e.target.value)}
+                                  placeholder="🎯"
+                                  className="w-10 text-center py-1 rounded-lg bg-slate-900 border border-slate-700 text-base"
+                                  title="Emoji icon"
+                                />
+                                <input
+                                  type="text"
+                                  value={rule.title || ''}
+                                  onChange={(e) => handleUpdateRule(rIdx, 'title', e.target.value)}
+                                  placeholder="Rule Title"
+                                  className="flex-1 px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-white font-bold text-xs"
+                                />
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteRuleItem(rIdx)}
+                                className="p-1 rounded-lg hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 transition-colors cursor-pointer"
+                                title="Delete this rule"
+                              >
+                                <XIcon className="w-4 h-4" />
+                              </button>
+                            </div>
+
+                            <div className="space-y-1">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[10px] uppercase font-bold text-slate-400">Pill Tag / Highlight</span>
+                                {isTieBreak && (
+                                  <span className="text-[10px] text-amber-400 font-mono font-semibold">Speed Tie-Breaker</span>
+                                )}
+                              </div>
+                              <input
+                                type="text"
+                                value={rule.highlight || ''}
+                                onChange={(e) => handleUpdateRule(rIdx, 'highlight', e.target.value)}
+                                placeholder="e.g. Tie-Breaker Only, Earn Points, Video Clue"
+                                className="w-full px-3 py-1 rounded-lg bg-slate-900 border border-slate-800 text-slate-300 text-xs font-mono"
+                              />
+                            </div>
+
+                            <div className="space-y-1">
+                              <span className="text-[10px] uppercase font-bold text-slate-400">Description / Explainer</span>
+                              <textarea
+                                value={rule.description || ''}
+                                onChange={(e) => handleUpdateRule(rIdx, 'description', e.target.value)}
+                                placeholder="Explanation text shown to players..."
+                                rows={2}
+                                className="w-full px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-800 text-slate-300 text-xs resize-none"
+                              />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {activeQ.rules.length < 6 && (
+                      <button
+                        type="button"
+                        onClick={handleAddRuleItem}
+                        className="px-4 py-2 rounded-xl bg-slate-950 hover:bg-slate-800 border border-slate-800 hover:border-amber-500/40 text-xs text-amber-300 font-bold transition-all cursor-pointer flex items-center gap-1.5"
+                      >
+                        <span>+ Add Another Rule Card</span>
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <div className="p-5 rounded-2xl bg-slate-950/60 border border-dashed border-slate-800 text-center space-y-2">
+                    <p className="text-xs text-slate-400">
+                      Want to explain how your quiz works at the beginning?
+                    </p>
+                    <p className="text-[11px] text-slate-500">
+                      Enable rules cards to explain that speed acts as the tie-breaker, how points work, and game formats.
+                    </p>
+                  </div>
+                )}
+              </div>
+
               {/* Big Screen Live Preview Card */}
               <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
                 <div className="flex items-center justify-between pb-2 border-b border-slate-800">
@@ -1664,24 +1918,71 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
                 </div>
 
                 {/* Simulated live screen presentation */}
-                <div className="relative rounded-2xl overflow-hidden bg-gradient-to-b from-slate-950 via-purple-950/30 to-slate-950 border border-slate-800 p-8 sm:p-12 text-center min-h-[300px] flex flex-col justify-center items-center shadow-2xl">
-                  <div className="absolute top-4 left-4">
-                    <span className="px-3 py-1 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300 text-xs font-bold uppercase tracking-wider">
-                      Round Announcement
+                <div className="relative rounded-2xl overflow-hidden bg-gradient-to-b from-slate-950 via-purple-950/30 to-slate-950 border border-slate-800 p-6 sm:p-10 text-center min-h-[300px] flex flex-col justify-center items-center shadow-2xl">
+                  <div className="mb-3">
+                    <span className="px-3.5 py-1 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300 text-xs font-bold uppercase tracking-wider">
+                      {activeQ.badge || (activeQ.rules?.length ? 'Quiz Intro & Rules' : 'Round Announcement')}
                     </span>
                   </div>
 
-                  <h3 className="text-2xl sm:text-4xl font-black text-transparent bg-clip-text bg-gradient-to-r from-amber-200 via-pink-200 to-purple-200 tracking-tight leading-tight max-w-2xl mb-3 mt-4">
-                    {activeQ.title || 'Now the Music Round!'}
+                  <h3 className="text-2xl sm:text-4xl font-black text-transparent bg-clip-text bg-gradient-to-r from-amber-200 via-pink-200 to-purple-200 tracking-tight leading-tight max-w-2xl mb-2">
+                    {activeQ.title || 'Welcome to QuizPulse Live!'}
                   </h3>
 
                   {activeQ.subtitle && (
-                    <p className="text-sm sm:text-base text-slate-300 max-w-xl mx-auto mb-6 leading-relaxed">
+                    <p className="text-xs sm:text-sm text-slate-300 max-w-xl mx-auto mb-5 leading-relaxed">
                       {activeQ.subtitle}
                     </p>
                   )}
 
-                  {activeQ.imageUrl ? (
+                  {/* Rules grid in preview */}
+                  {Array.isArray(activeQ.rules) && activeQ.rules.length > 0 ? (
+                    <div className="w-full max-w-3xl space-y-4 my-2 text-left">
+                      {activeQ.imageUrl && (
+                        <div className="relative max-w-sm w-full mx-auto rounded-2xl overflow-hidden border border-purple-500/30 shadow-lg bg-slate-950 mb-3">
+                          <img
+                            src={activeQ.imageUrl}
+                            alt="Splash banner"
+                            className="w-full h-36 object-cover object-center"
+                            onError={(e) => {
+                              e.target.style.display = 'none';
+                            }}
+                          />
+                        </div>
+                      )}
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        {activeQ.rules.map((rule, idx) => {
+                          const isTieBreak = rule.highlight === 'Tie-Breaker Only' || rule.title?.toLowerCase().includes('speed');
+                          return (
+                            <div
+                              key={idx}
+                              className={`p-3 rounded-xl border text-xs ${
+                                isTieBreak
+                                  ? 'bg-amber-950/30 border-amber-500/50 text-amber-100 shadow'
+                                  : 'bg-slate-950/80 border-slate-800 text-slate-300'
+                              }`}
+                            >
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className="text-base">{rule.icon}</span>
+                                <span className={`font-bold ${isTieBreak ? 'text-amber-300' : 'text-white'}`}>
+                                  {rule.title}
+                                </span>
+                                {rule.highlight && (
+                                  <span className="ml-auto text-[9px] font-mono font-bold px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                                    {rule.highlight}
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-[11px] text-slate-400 pl-6 line-clamp-2">
+                                {rule.description}
+                              </p>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : activeQ.imageUrl ? (
                     <div className="relative max-w-md w-full mx-auto rounded-2xl overflow-hidden border border-purple-500/30 shadow-2xl shadow-purple-900/40 bg-slate-950">
                       <img
                         src={activeQ.imageUrl}
@@ -1699,8 +2000,8 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
                     </div>
                   )}
 
-                  <div className="mt-8 text-xs text-purple-400 font-medium">
-                    Quiz master will start next question shortly...
+                  <div className="mt-6 text-xs text-purple-400 font-medium">
+                    {activeQ.rules?.length ? 'Quiz Master will begin Question 1 shortly...' : 'Quiz master will start next question shortly...'}
                   </div>
                 </div>
               </div>

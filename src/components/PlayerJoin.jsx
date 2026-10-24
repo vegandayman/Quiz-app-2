@@ -720,15 +720,15 @@ export default function PlayerJoin({ initialRoomCode = '', onOpenHost }) {
 
         {/* 1.5. SPLASH / INTERMISSION SCREEN */}
         {status === 'splash' && (
-          <main className="my-auto text-center flex flex-col items-center max-w-sm w-full mx-auto animate-in zoom-in-95 duration-200">
-            <div className="w-full p-6 sm:p-8 rounded-3xl bg-slate-900 border border-amber-500/40 shadow-2xl space-y-4">
+          <main className="my-auto text-center flex flex-col items-center max-w-sm sm:max-w-md w-full mx-auto animate-in zoom-in-95 duration-200">
+            <div className="w-full p-5 sm:p-7 rounded-3xl bg-slate-900 border border-amber-500/40 shadow-2xl space-y-4">
               <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300 text-xs font-bold uppercase tracking-wider">
                 <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
-                Round Announcement
+                {currentQuestion?.badge || (currentQuestion?.rules?.length ? 'Quiz Intro & Rules' : 'Round Announcement')}
               </span>
 
               <h2 className="text-2xl sm:text-3xl font-black text-white leading-tight">
-                {currentQuestion?.title || 'Now the Music Round!'}
+                {currentQuestion?.title || 'Welcome to QuizPulse Live!'}
               </h2>
 
               {currentQuestion?.subtitle && (
@@ -738,7 +738,7 @@ export default function PlayerJoin({ initialRoomCode = '', onOpenHost }) {
               )}
 
               {currentQuestion?.imageUrl && (
-                <div className="rounded-2xl overflow-hidden border border-purple-500/30 max-h-48 w-full bg-slate-950 shadow-lg">
+                <div className="rounded-2xl overflow-hidden border border-purple-500/30 max-h-44 w-full bg-slate-950 shadow-lg">
                   <img
                     src={currentQuestion.imageUrl}
                     alt="Splash preview"
@@ -750,9 +750,59 @@ export default function PlayerJoin({ initialRoomCode = '', onOpenHost }) {
                 </div>
               )}
 
+              {/* Rules Explainer Cards on Mobile */}
+              {Array.isArray(currentQuestion?.rules) && currentQuestion.rules.length > 0 && (
+                <div className="space-y-2 text-left pt-1">
+                  <div className="text-[11px] font-bold uppercase tracking-wider text-amber-400 flex items-center justify-between">
+                    <span>Quick Rules:</span>
+                    <span className="text-[10px] text-slate-400 font-normal">Read before starting</span>
+                  </div>
+                  <div className="space-y-2 max-h-60 overflow-y-auto pr-0.5">
+                    {currentQuestion.rules.map((rule, rIdx) => {
+                      const isTieBreak = rule.highlight === 'Tie-Breaker Only' || rule.title?.toLowerCase().includes('speed');
+                      return (
+                        <div
+                          key={rIdx}
+                          className={`p-3 rounded-2xl border text-xs ${
+                            isTieBreak
+                              ? 'bg-gradient-to-br from-amber-950/40 to-slate-950 border-amber-500/60 text-amber-100 shadow-md ring-1 ring-amber-500/30'
+                              : 'bg-slate-950/80 border-slate-800 text-slate-300'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="text-lg leading-none">{rule.icon}</span>
+                            <span className={`font-bold text-xs ${isTieBreak ? 'text-amber-300' : 'text-white'}`}>
+                              {rule.title}
+                            </span>
+                            {rule.highlight && (
+                              <span
+                                className={`ml-auto text-[9px] font-mono font-bold px-1.5 py-0.5 rounded border ${
+                                  isTieBreak
+                                    ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                                    : 'bg-purple-500/20 text-purple-300 border-purple-500/30'
+                                }`}
+                              >
+                                {rule.highlight}
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[11px] leading-relaxed text-slate-300 pl-6">
+                            {rule.description}
+                          </p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               <div className="pt-2 text-xs text-purple-300 font-semibold flex items-center justify-center gap-2">
                 <span className="w-2 h-2 rounded-full bg-purple-400 animate-pulse" />
-                <span>Look up at the live display! Questions start soon...</span>
+                <span>
+                  {currentQuestion?.rules?.length
+                    ? 'Look up at the live screen! Quiz begins soon...'
+                    : 'Look up at the live display! Questions start soon...'}
+                </span>
               </div>
             </div>
           </main>

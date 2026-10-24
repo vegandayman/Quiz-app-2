@@ -5,6 +5,7 @@ import QuizMaker from './QuizMaker.jsx';
 import { findClosestPlayers } from '../utils/geoDistance.js';
 import { getStoredMasterPasscode, setStoredMasterPasscode } from './HostLockScreen.jsx';
 import { rankPlayersWithTieBreak, detectTopTie } from '../utils/tieBreaker.js';
+import { DEFAULT_INTRO_RULES_SPLASH } from '../data/introSplashDefaults.js';
 
 // Clean inline SVGs (zero external dependencies)
 const LockIcon = ({ className = 'w-4 h-4' }) => (
@@ -153,6 +154,7 @@ const shapes = [
 ];
 
 const defaultQuestions = [
+  DEFAULT_INTRO_RULES_SPLASH,
   {
     id: 1,
     type: 'question',
@@ -967,7 +969,7 @@ export default function HostConsole({ onOpenDisplay, onRoomCodeReady, onLockCons
                         ? `Continue to: "${activeQuestions[currentQIndex + 1]?.title || 'Next Splash'}"`
                         : activeQuestions[currentQIndex + 1]?.type === 'end'
                           ? '🏆 Show Final Scoreboard & Podium'
-                          : `Start Next Question (${currentQIndex + 2} of ${totalQuestions})`
+                          : `Start Next Question (${activeQuestions.slice(0, currentQIndex + 2).filter((q) => q.type !== 'splash' && q.type !== 'end').length} of ${totalQuestions})`
                       : '🏆 Show Final Scoreboard & Podium'}
                   </span>
                   <ArrowRightIcon className="w-5 h-5 text-slate-950" />
@@ -1127,7 +1129,7 @@ export default function HostConsole({ onOpenDisplay, onRoomCodeReady, onLockCons
                             ? `Continue to: "${activeQuestions[currentQIndex + 1]?.title || 'Splash Screen'}"`
                             : activeQuestions[currentQIndex + 1]?.type === 'end'
                               ? '🏆 Show Final Scoreboard & Podium'
-                              : `Start Question ${currentQIndex + 2} of ${totalQuestions}`
+                              : `Start Question ${activeQuestions.slice(0, currentQIndex + 2).filter((q) => q.type !== 'splash' && q.type !== 'end').length} of ${totalQuestions}`
                           : '🏆 Show Final Scoreboard & Podium'}
                       </span>
                       <ArrowRightIcon className="w-5 h-5" />
