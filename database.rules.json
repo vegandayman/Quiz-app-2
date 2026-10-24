@@ -46,6 +46,9 @@
         "showScoreboardAfterQuestion": {
           ".validate": "newData.isBoolean()"
         },
+        "tieBreakRevealed": {
+          ".validate": "newData.isBoolean()"
+        },
 
         /* Questions array / objects */
         "questions": {

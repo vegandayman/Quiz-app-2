@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ref, onValue, get } from 'firebase/database';
+import { ref, onValue, get, update } from 'firebase/database';
 import { db } from '../firebase.js';
 import WorldMap from './WorldMap.jsx';
 import {
@@ -9,8 +9,15 @@ import {
   calculateTargetAndGuessesBounds
 } from '../utils/geoDistance.js';
 import { extractYouTubeId, playTrainWhistleSound, playClueChimeSound } from '../data/paSparetPresets.js';
+import { rankPlayersWithTieBreak, detectTopTie } from '../utils/tieBreaker.js';
 
 // Clean inline SVGs (zero external dependencies)
+const ClockIcon = ({ className = 'w-5 h-5' }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="10" />
+    <polyline points="12 6 12 12 16 14" />
+  </svg>
+);
 const TrainIcon = ({ className = 'w-5 h-5' }) => (
   <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <rect width="16" height="16" x="4" y="3" rx="2" />
@@ -136,6 +143,7 @@ export default function LiveDisplay({ roomCode: initialRoomCode = '', onSwitchTo
   const [roomData, setRoomData] = useState(null);
   const [timeLeft, setTimeLeft] = useState(20);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [autoRevealCount, setAutoRevealCount] = useState(8);
   const whistlePlayedForQRef = useRef(null);
   const lastChimeTierRef = useRef(null);
 
@@ -248,6 +256,28 @@ export default function LiveDisplay({ roomCode: initialRoomCode = '', onSwitchTo
       playClueChimeSound();
     }
   }, [roomData?.status, roomData?.currentQuestionIndex, roomData?.questions, elapsedSeconds]);
+
+  // Auto-countdown to reveal speed tie-breaker on big screen if active
+  useEffect(() => {
+    if (roomData?.status !== 'finished' || roomData?.tieBreakRevealed || !activeCode) {
+      setAutoRevealCount(8);
+      return;
+    }
+
+    const interval = setInterval(() => {
+      setAutoRevealCount((prev) => {
+        if (prev <= 1) {
+          clearInterval(interval);
+          const roomRef = ref(db, `rooms/${activeCode}`);
+          update(roomRef, { tieBreakRevealed: true }).catch(console.error);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [roomData?.status, roomData?.tieBreakRevealed, activeCode]);
 
   // ----------------------------------------------------
   // PIN ENTRY SCREEN (Join New Room)
@@ -1185,12 +1215,115 @@ export default function LiveDisplay({ roomCode: initialRoomCode = '', onSwitchTo
     const showFullLeaderboard = endScreenItem.showFullLeaderboard !== false;
     const enableConfetti = endScreenItem.enableConfetti !== false;
 
-    const rankedPlayers = [...players].sort((a, b) => b.score - a.score);
+    const rankedPlayers = rankPlayersWithTieBreak(players);
+    const topTie = detectTopTie(rankedPlayers);
+    const isTieBreakRevealed = Boolean(roomData.tieBreakRevealed);
+
     const first = rankedPlayers[0];
     const second = rankedPlayers[1];
     const third = rankedPlayers[2];
     const allRunnersUp = rankedPlayers.slice(3);
 
+    // ----------------------------------------------------
+    // STAGE 1: DEAD HEAT TIE-BREAK FACEOFF (Before Speed is Revealed)
+    // ----------------------------------------------------
+    if (topTie.hasTopTie && !isTieBreakRevealed) {
+      return (
+        <div className="min-h-screen bg-slate-950 text-white flex flex-col justify-between p-6 sm:p-10 font-sans relative overflow-hidden">
+          {/* Ambient energetic pulse */}
+          <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-amber-500/15 rounded-full blur-3xl pointer-events-none animate-pulse" />
+          <div className="absolute -top-20 -left-20 w-80 h-80 bg-purple-600/20 rounded-full blur-3xl pointer-events-none" />
+
+          <header className="flex items-center justify-between border-b border-slate-800 pb-4 relative z-10">
+            <div className="flex items-center gap-3">
+              <span className="text-3xl animate-bounce">⚡</span>
+              <div>
+                <span className="text-xs uppercase font-black tracking-widest text-amber-400">
+                  Dramatic Finale • Photo Finish
+                </span>
+                <h1 className="text-2xl sm:text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-amber-300 via-yellow-400 to-amber-500">
+                  Dead Heat for 1st Place!
+                </h1>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={handleSwitchRoom}
+              className="text-xs text-slate-400 hover:text-white transition-colors px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-800 cursor-pointer"
+            >
+              Switch Room
+            </button>
+          </header>
+
+          <main className="my-auto max-w-4xl mx-auto w-full relative z-10 py-6 text-center space-y-8">
+            <div className="space-y-2">
+              <span className="px-4 py-1.5 rounded-full bg-amber-500/20 border border-amber-500/50 text-amber-300 font-mono text-sm font-black tracking-wider uppercase inline-flex items-center gap-2 shadow-lg shadow-amber-500/20">
+                <span>⚔️</span>
+                <span>TIED AT {topTie.topScore} POINTS</span>
+                <span>⚔️</span>
+              </span>
+              <h2 className="text-3xl sm:text-5xl font-black text-white tracking-tight">
+                Who was fastest on the buzzer?
+              </h2>
+              <p className="text-sm sm:text-base text-slate-300 max-w-xl mx-auto">
+                Competitors tied with identical scores! The player with the fastest total response time across all questions takes the crown.
+              </p>
+            </div>
+
+            {/* Side-by-Side Faceoff Arena */}
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-4 sm:gap-8 max-w-2xl mx-auto">
+              {topTie.tiedPlayers.map((player) => (
+                <div
+                  key={player.id}
+                  className="w-full sm:w-72 bg-gradient-to-b from-slate-900 via-slate-900 to-slate-950 border-2 border-amber-500/60 rounded-3xl p-6 shadow-2xl relative overflow-hidden flex flex-col items-center"
+                >
+                  <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-amber-500 to-yellow-400 text-slate-950 font-black text-2xl flex items-center justify-center mb-3 shadow-lg shadow-amber-500/30">
+                    {player.name.charAt(0).toUpperCase()}
+                  </div>
+                  <h3 className="text-xl sm:text-2xl font-black text-white truncate max-w-full">
+                    {player.name}
+                  </h3>
+                  <div className="text-2xl font-black text-amber-400 font-mono mt-1">
+                    {player.score} pts
+                  </div>
+
+                  <div className="mt-4 pt-4 border-t border-slate-800 w-full flex items-center justify-center gap-2 text-xs font-mono font-bold text-amber-300/80">
+                    <ClockIcon className="w-4 h-4 text-amber-400 animate-spin" />
+                    <span>Speed: [ LOCKED IN ⏱️ ]</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Action / Countdown */}
+            <div className="pt-4 flex flex-col items-center gap-3">
+              <button
+                type="button"
+                onClick={async () => {
+                  const roomRef = ref(db, `rooms/${activeCode}`);
+                  await update(roomRef, { tieBreakRevealed: true });
+                }}
+                className="px-8 py-4 sm:px-10 sm:py-5 rounded-2xl bg-gradient-to-r from-amber-500 via-yellow-400 to-amber-500 hover:from-amber-400 hover:to-yellow-300 text-slate-950 font-black text-base sm:text-xl shadow-2xl shadow-amber-500/40 hover:scale-105 active:scale-95 transition-all cursor-pointer flex items-center gap-3"
+              >
+                <span>⚡ Reveal Speed Tie-Break Winner! ⏱️</span>
+              </button>
+
+              <p className="text-xs text-slate-400 font-mono">
+                Auto-revealing in <strong className="text-amber-400">{autoRevealCount}s</strong> or click button to reveal now
+              </p>
+            </div>
+          </main>
+
+          <footer className="text-center text-slate-500 text-xs relative z-10">
+            Resolving 1st place champion via total answer time (sum of all question response times)
+          </footer>
+        </div>
+      );
+    }
+
+    // ----------------------------------------------------
+    // STAGE 2: OLYMPIC PODIUM (With Speed Tie-Break Results)
+    // ----------------------------------------------------
     return (
       <div className="min-h-screen bg-slate-950 text-white flex flex-col justify-between p-6 sm:p-10 font-sans relative overflow-hidden">
         {/* Celebration Ambient Glow */}
@@ -1225,17 +1358,57 @@ export default function LiveDisplay({ roomCode: initialRoomCode = '', onSwitchTo
               <p className="text-xs text-slate-300 font-medium">{podiumSubtitle}</p>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={handleSwitchRoom}
-            className="text-xs text-slate-400 hover:text-white transition-colors px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-800 cursor-pointer"
-          >
-            Switch Room
-          </button>
+          <div className="flex items-center gap-2">
+            {topTie.hasTopTie && (
+              <button
+                type="button"
+                onClick={async () => {
+                  const roomRef = ref(db, `rooms/${activeCode}`);
+                  await update(roomRef, { tieBreakRevealed: false });
+                }}
+                className="text-xs text-amber-300 hover:text-white transition-colors px-3 py-1.5 rounded-lg bg-amber-950/50 border border-amber-500/50 cursor-pointer flex items-center gap-1.5"
+              >
+                <span>↺ Replay Tie-Break</span>
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={handleSwitchRoom}
+              className="text-xs text-slate-400 hover:text-white transition-colors px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-800 cursor-pointer"
+            >
+              Switch Room
+            </button>
+          </div>
         </header>
 
         {/* Podium Stage */}
         <main className="my-auto max-w-4xl mx-auto w-full relative z-10 py-6">
+          
+          {/* Dramatic Tie-Break Winner Banner */}
+          {topTie.hasTopTie && isTieBreakRevealed && (
+            <div className="max-w-2xl mx-auto w-full mb-6 p-4 sm:p-5 rounded-3xl bg-gradient-to-r from-amber-950/80 via-yellow-950/60 to-amber-950/80 border-2 border-amber-500/70 shadow-2xl text-center relative z-10 animate-in zoom-in-95 duration-500">
+              <div className="flex items-center justify-center gap-2 mb-1">
+                <span className="text-xl">⚡</span>
+                <span className="text-xs uppercase font-black tracking-widest text-amber-300">
+                  Speed Tie-Breaker Result
+                </span>
+                <span className="text-xl">⚡</span>
+              </div>
+              <p className="text-xl sm:text-2xl font-black text-white">
+                👑 <span className="text-amber-400">{topTie.winner.name}</span> wins 1st Place by {topTie.timeDifference}s!
+              </p>
+              <div className="flex flex-wrap items-center justify-center gap-3 sm:gap-4 mt-2.5 text-xs font-mono">
+                <span className="px-3 py-1 rounded-xl bg-amber-500/25 border border-amber-400/50 text-amber-300 font-bold flex items-center gap-1">
+                  🥇 {topTie.winner.name}: {topTie.winner.formattedTime}
+                </span>
+                <span className="text-slate-500 font-sans font-bold">vs</span>
+                <span className="px-3 py-1 rounded-xl bg-slate-800/80 border border-slate-700 text-slate-300 font-bold flex items-center gap-1">
+                  🥈 {topTie.runnerUp.name}: {topTie.runnerUp.formattedTime}
+                </span>
+              </div>
+            </div>
+          )}
+
           <div className="flex items-end justify-center gap-4 sm:gap-6 mb-8">
             
             {/* 2nd Place (Silver - Left) */}
@@ -1245,6 +1418,10 @@ export default function LiveDisplay({ roomCode: initialRoomCode = '', onSwitchTo
                   <span className="text-2xl sm:text-3xl">🥈</span>
                   <p className="font-black text-slate-200 text-sm sm:text-base truncate max-w-[150px]">{second.name}</p>
                   <p className="text-xs font-mono font-bold text-slate-400">{second.score} pts</p>
+                  <span className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded text-[10px] font-mono bg-slate-800/80 text-slate-400 border border-slate-700">
+                    ⏱️ {second.formattedTime}
+                    {second.lostTieBreak && ' (Tied on pts)'}
+                  </span>
                 </div>
                 <div className="w-full h-36 sm:h-44 rounded-t-2xl bg-gradient-to-t from-slate-800 to-slate-700 border-t-2 border-slate-400 shadow-xl flex items-center justify-center">
                   <span className="text-3xl sm:text-5xl font-black text-slate-400">2</span>
@@ -1259,6 +1436,10 @@ export default function LiveDisplay({ roomCode: initialRoomCode = '', onSwitchTo
                   <CrownIcon className="w-8 h-8 text-amber-400 mx-auto animate-bounce" />
                   <p className="font-black text-amber-300 text-base sm:text-xl truncate max-w-[180px]">{first.name}</p>
                   <p className="text-xs sm:text-sm font-mono font-black text-amber-400">{first.score} pts</p>
+                  <span className="inline-flex items-center gap-1 mt-1 px-2.5 py-0.5 rounded text-[10px] font-mono bg-amber-500/20 border border-amber-500/50 text-amber-300 font-bold">
+                    ⏱️ {first.formattedTime}
+                    {first.wonOnTieBreak && ' (⚡ Speed Winner!)'}
+                  </span>
                 </div>
                 <div className="w-full h-48 sm:h-60 rounded-t-2xl bg-gradient-to-t from-amber-700 via-amber-600 to-yellow-500 border-t-4 border-yellow-300 shadow-2xl shadow-amber-500/30 flex items-center justify-center">
                   <span className="text-4xl sm:text-7xl font-black text-slate-950">1</span>
@@ -1273,6 +1454,9 @@ export default function LiveDisplay({ roomCode: initialRoomCode = '', onSwitchTo
                   <span className="text-2xl sm:text-3xl">🥉</span>
                   <p className="font-black text-amber-200 text-sm sm:text-base truncate max-w-[150px]">{third.name}</p>
                   <p className="text-xs font-mono font-bold text-amber-300/80">{third.score} pts</p>
+                  <span className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded text-[10px] font-mono bg-slate-800/80 text-slate-400 border border-slate-700">
+                    ⏱️ {third.formattedTime}
+                  </span>
                 </div>
                 <div className="w-full h-28 sm:h-32 rounded-t-2xl bg-gradient-to-t from-amber-900 to-amber-800 border-t-2 border-amber-600 shadow-xl flex items-center justify-center">
                   <span className="text-2xl sm:text-4xl font-black text-amber-600">3</span>
@@ -1285,7 +1469,7 @@ export default function LiveDisplay({ roomCode: initialRoomCode = '', onSwitchTo
           {showFullLeaderboard && allRunnersUp.length > 0 && (
             <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 max-w-2xl mx-auto shadow-xl">
               <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block text-center mb-3">
-                Final Leaderboard Standings
+                Final Leaderboard Standings (Sorted by Points & Speed)
               </span>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-56 overflow-y-auto pr-1">
                 {allRunnersUp.map((p, idx) => (
@@ -1294,7 +1478,10 @@ export default function LiveDisplay({ roomCode: initialRoomCode = '', onSwitchTo
                       <span className="text-slate-500 font-mono font-bold">#{idx + 4}</span>
                       <span className="font-bold text-slate-200 truncate max-w-[140px]">{p.name}</span>
                     </div>
-                    <span className="text-purple-400 font-mono font-black">{p.score} pts</span>
+                    <div className="flex items-center gap-2 font-mono">
+                      <span className="text-purple-400 font-black">{p.score} pts</span>
+                      <span className="text-slate-500 text-[10px]">({p.formattedTime})</span>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -1303,7 +1490,7 @@ export default function LiveDisplay({ roomCode: initialRoomCode = '', onSwitchTo
         </main>
 
         <footer className="text-center text-slate-500 text-xs relative z-10">
-          Quiz complete! Host can restart or start a new quiz anytime.
+          Quiz complete! Tied scores resolved automatically by total answer speed across all questions.
         </footer>
       </div>
     );

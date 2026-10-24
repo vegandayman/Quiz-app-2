@@ -4,6 +4,7 @@ import { db } from '../firebase.js';
 import { checkFreeInputAnswer } from '../utils/answerMatcher.js';
 import WorldMap from './WorldMap.jsx';
 import { playEmergencyBrakeSound } from '../data/paSparetPresets.js';
+import { rankPlayersWithTieBreak, detectTopTie } from '../utils/tieBreaker.js';
 
 // Clean inline SVGs (zero external dependencies)
 const TrainIcon = ({ className = 'w-6 h-6' }) => (
@@ -623,17 +624,18 @@ export default function PlayerJoin({ initialRoomCode = '', onOpenHost }) {
   const totalQuestions = allSlides.filter((q) => q.type !== 'splash' && q.type !== 'end').length;
   const questionsPassed = allSlides.slice(0, currentQIndex + 1).filter((q) => q.type !== 'splash' && q.type !== 'end').length;
 
-  // Compute rankings
+  // Compute rankings (with speed tie-breaker)
   const rawPlayers = roomData?.players || {};
-  const sortedPlayers = Object.entries(rawPlayers)
-    .map(([id, p]) => ({
-      id,
-      name: typeof p === 'object' ? p.name : p,
-      score: typeof p === 'object' ? p.score || 0 : 0
-    }))
-    .sort((a, b) => b.score - a.score);
-
+  const playersList = Object.entries(rawPlayers).map(([id, p]) => ({
+    id,
+    name: typeof p === 'object' ? p.name : p,
+    score: typeof p === 'object' ? p.score || 0 : 0,
+    answers: typeof p === 'object' ? p.answers || {} : {}
+  }));
+  const sortedPlayers = rankPlayersWithTieBreak(playersList);
+  const topTie = detectTopTie(sortedPlayers);
   const myRank = sortedPlayers.findIndex((p) => p.id === currentPlayerId) + 1;
+  const myEnrichedPlayer = sortedPlayers.find((p) => p.id === currentPlayerId);
 
   // ----------------------------------------------------
   // VIEW: Joined Player Screen
@@ -1404,8 +1406,33 @@ export default function PlayerJoin({ initialRoomCode = '', onOpenHost }) {
           </main>
         )}
 
-        {/* 5. FINISHED / FINAL WINNER PODIUM */}
-        {status === 'finished' && (
+        {/* 5. FINISHED / FINAL WINNER PODIUM (WITH SPEED TIE-BREAKER) */}
+        {status === 'finished' && topTie.hasTopTie && !roomData?.tieBreakRevealed ? (
+          <main className="my-auto text-center flex flex-col items-center w-full max-w-sm mx-auto space-y-4 animate-in zoom-in-95 duration-300">
+            <div className="p-6 sm:p-8 rounded-3xl bg-gradient-to-b from-amber-950/60 via-slate-900 to-slate-950 border-2 border-amber-500/60 w-full shadow-2xl space-y-4">
+              <span className="text-5xl block animate-bounce">⚡</span>
+              <span className="px-3 py-1 rounded-full bg-amber-500/20 border border-amber-500/50 text-amber-300 font-mono text-xs font-black uppercase tracking-wider inline-block">
+                Photo Finish • Tie-Break!
+              </span>
+              <h2 className="text-2xl font-black text-white">
+                {topTie.tiedPlayers.some((p) => p.id === currentPlayerId)
+                  ? "YOU'RE TIED FOR 1ST PLACE!"
+                  : "Dead Heat for 1st Place!"}
+              </h2>
+              <p className="text-xs text-slate-300 leading-relaxed">
+                {topTie.tiedPlayers.some((p) => p.id === currentPlayerId)
+                  ? `You and ${topTie.tiedPlayers.filter((p) => p.id !== currentPlayerId).map((p) => p.name).join(' & ')} tied at ${topTie.topScore} pts! Look up at the big screen as the speed tie-break is revealed!`
+                  : `${topTie.tiedPlayers.map((p) => p.name).join(' and ')} are deadlocked at ${topTie.topScore} pts! Watch the big screen as the speed champion is revealed!`
+                }
+              </p>
+
+              <div className="p-4 rounded-2xl bg-slate-950 border border-amber-500/30 text-center font-mono">
+                <span className="text-[11px] text-slate-400 block mb-1">Your Total Answer Speed</span>
+                <span className="text-2xl font-black text-amber-400">⏱️ {myEnrichedPlayer?.formattedTime || '--'}</span>
+              </div>
+            </div>
+          </main>
+        ) : status === 'finished' && (
           <main className="my-auto text-center flex flex-col items-center w-full max-w-sm mx-auto space-y-4">
             <div className="p-6 sm:p-8 rounded-3xl bg-gradient-to-b from-purple-950/40 via-slate-900 to-slate-950 border-2 border-purple-500/40 w-full shadow-2xl space-y-4">
               <span className="text-5xl block animate-bounce">
@@ -1413,20 +1440,34 @@ export default function PlayerJoin({ initialRoomCode = '', onOpenHost }) {
               </span>
               <div>
                 <h2 className="text-2xl font-black text-white">
-                  {myRank === 1 ? 'CHAMPION!' : myRank <= 3 ? `${myRank === 2 ? '2nd' : '3rd'} Place Podium!` : `Finished #${myRank} of ${sortedPlayers.length}!`}
+                  {myRank === 1
+                    ? (myEnrichedPlayer?.wonOnTieBreak ? 'CHAMPION! ⚡ (Won on Speed!)' : 'CHAMPION!')
+                    : myRank <= 3
+                    ? `${myRank === 2 ? '2nd' : '3rd'} Place Podium!`
+                    : `Finished #${myRank} of ${sortedPlayers.length}!`}
                 </h2>
                 <p className="text-xs text-slate-300 mt-1">
                   {myRank === 1
-                    ? 'Congratulations! You won the quiz!'
+                    ? (myEnrichedPlayer?.wonOnTieBreak
+                        ? `Incredible speed! You broke the tie and won 1st place with ${myEnrichedPlayer.formattedTime} total response time!`
+                        : 'Congratulations! You won the quiz!')
+                    : myEnrichedPlayer?.lostTieBreak
+                    ? `Tied on points (${myEnrichedPlayer.score} pts)! Runner-up on answer speed (${myEnrichedPlayer.formattedTime}). Fantastic effort!`
                     : myRank <= 3
                     ? 'Outstanding! You made it onto the winners podium!'
                     : 'Great game! Thanks for competing!'}
                 </p>
               </div>
 
-              <div className="px-6 py-4 rounded-2xl bg-slate-950 border border-slate-800 text-center">
-                <span className="text-[11px] text-slate-500 uppercase font-bold tracking-wider">Your Final Score</span>
-                <p className="text-3xl font-black text-amber-400 mt-0.5">{myPlayerObj?.score || 0} pts</p>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="px-4 py-3 rounded-2xl bg-slate-950 border border-slate-800 text-center">
+                  <span className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">Final Score</span>
+                  <p className="text-2xl font-black text-amber-400 mt-0.5">{myPlayerObj?.score || 0} pts</p>
+                </div>
+                <div className="px-4 py-3 rounded-2xl bg-slate-950 border border-slate-800 text-center">
+                  <span className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">Total Speed</span>
+                  <p className="text-2xl font-black text-purple-400 mt-0.5">⏱️ {myEnrichedPlayer?.formattedTime || '--'}</p>
+                </div>
               </div>
             </div>
 
@@ -1455,8 +1496,16 @@ export default function PlayerJoin({ initialRoomCode = '', onOpenHost }) {
                           {idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `#${idx + 1}`}
                         </span>
                         <span className="truncate">{p.name} {isMe && '(You)'}</span>
+                        {p.wonOnTieBreak && (
+                          <span className="text-[9px] bg-amber-500/20 text-amber-300 border border-amber-500/40 px-1 py-0.2 rounded font-bold font-mono">
+                            ⚡ Speed
+                          </span>
+                        )}
                       </div>
-                      <span className="font-mono font-bold text-amber-300 ml-2 shrink-0">{p.score} pts</span>
+                      <div className="flex items-center gap-2 font-mono ml-2 shrink-0">
+                        <span className="font-bold text-amber-300">{p.score} pts</span>
+                        <span className="text-slate-500 text-[10px]">({p.formattedTime})</span>
+                      </div>
                     </div>
                   );
                 })}

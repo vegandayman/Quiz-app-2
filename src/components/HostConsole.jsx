@@ -4,6 +4,7 @@ import { db } from '../firebase.js';
 import QuizMaker from './QuizMaker.jsx';
 import { findClosestPlayers } from '../utils/geoDistance.js';
 import { getStoredMasterPasscode, setStoredMasterPasscode } from './HostLockScreen.jsx';
+import { rankPlayersWithTieBreak, detectTopTie } from '../utils/tieBreaker.js';
 
 // Clean inline SVGs (zero external dependencies)
 const LockIcon = ({ className = 'w-4 h-4' }) => (
@@ -393,8 +394,9 @@ export default function HostConsole({ onOpenDisplay, onRoomCodeReady, onLockCons
     answers: typeof p === 'object' ? p.answers || {} : {}
   }));
 
-  // Sort players for leaderboard
-  const rankedPlayers = [...players].sort((a, b) => b.score - a.score);
+  // Sort players for leaderboard (with speed tie-breaker)
+  const rankedPlayers = rankPlayersWithTieBreak(players);
+  const topTie = detectTopTie(rankedPlayers);
 
   const activeQuestion = activeQuestions[currentQIndex] || activeQuestions[0];
   const nextQuestion = activeQuestions[currentQIndex + 1] || null;
@@ -602,7 +604,8 @@ export default function HostConsole({ onOpenDisplay, onRoomCodeReady, onLockCons
         await update(roomRef, {
           status: 'finished',
           currentQuestionIndex: nextIndex,
-          revealStage: 1
+          revealStage: 1,
+          tieBreakRevealed: false
         });
         return;
       }
@@ -617,7 +620,8 @@ export default function HostConsole({ onOpenDisplay, onRoomCodeReady, onLockCons
     } else {
       await update(roomRef, {
         status: 'finished',
-        revealStage: 1
+        revealStage: 1,
+        tieBreakRevealed: false
       });
     }
   };
@@ -636,7 +640,8 @@ export default function HostConsole({ onOpenDisplay, onRoomCodeReady, onLockCons
     await update(roomRef, {
       ...resetPlayersUpdates,
       status: 'lobby',
-      currentQuestionIndex: 0
+      currentQuestionIndex: 0,
+      tieBreakRevealed: false
     });
   };
 
@@ -907,12 +912,29 @@ export default function HostConsole({ onOpenDisplay, onRoomCodeReady, onLockCons
               )}
 
               {status === 'finished' && (
-                <>
-                  <h2 className="text-2xl font-black text-purple-300">🎉 Quiz Completed!</h2>
-                  <p className="text-xs text-slate-300 mt-1">
-                    Final Olympic podium is showing on the live display screen!
-                  </p>
-                </>
+                topTie.hasTopTie ? (
+                  <>
+                    <div className="flex items-center gap-2">
+                      <span className="px-2.5 py-0.5 rounded-full bg-amber-500/20 border border-amber-500/50 text-amber-300 font-mono text-xs font-black uppercase tracking-wider animate-pulse">
+                        ⚡ DEAD-HEAT TIE-BREAK
+                      </span>
+                      <h2 className="text-2xl font-black text-amber-300">Tied for 1st Place!</h2>
+                    </div>
+                    <p className="text-xs text-slate-300 mt-1">
+                      {topTie.tiedPlayers.map(p => p.name).join(' & ')} are tied at {topTie.topScore} pts!
+                      {roomData?.tieBreakRevealed
+                        ? ` Decided by speed: ${topTie.winner.name} won by ${topTie.timeDifference}s!`
+                        : ` Click "Reveal Speed Tie-Break" to crown the champion on the big screen.`}
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <h2 className="text-2xl font-black text-purple-300">🎉 Quiz Completed!</h2>
+                    <p className="text-xs text-slate-300 mt-1">
+                      Final Olympic podium is showing on the live display screen!
+                    </p>
+                  </>
+                )
               )}
             </div>
 
@@ -1143,13 +1165,33 @@ export default function HostConsole({ onOpenDisplay, onRoomCodeReady, onLockCons
               )}
 
               {status === 'finished' && (
-                <button
-                  type="button"
-                  onClick={handleResetQuiz}
-                  className="w-full sm:w-auto px-8 py-4 rounded-2xl bg-purple-600 hover:bg-purple-500 text-white font-black text-base cursor-pointer shadow-lg transition-all"
-                >
-                  Play Again / Reset Quiz
-                </button>
+                <div className="flex flex-col sm:flex-row items-center gap-2">
+                  {topTie.hasTopTie && (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const roomRef = ref(db, `rooms/${roomCode}`);
+                        await update(roomRef, {
+                          tieBreakRevealed: !roomData?.tieBreakRevealed
+                        });
+                      }}
+                      className={`w-full sm:w-auto px-6 py-4 rounded-2xl font-black text-sm flex items-center justify-center gap-2 shadow-xl transition-all cursor-pointer ${
+                        !roomData?.tieBreakRevealed
+                          ? 'bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 text-slate-950 shadow-amber-500/40 animate-pulse'
+                          : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700'
+                      }`}
+                    >
+                      <span>⚡ {!roomData?.tieBreakRevealed ? 'Reveal Speed Tie-Break on Big Screen' : 'Replay Tie-Break Reveal'}</span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handleResetQuiz}
+                    className="w-full sm:w-auto px-8 py-4 rounded-2xl bg-purple-600 hover:bg-purple-500 text-white font-black text-base cursor-pointer shadow-lg transition-all"
+                  >
+                    Play Again / Reset Quiz
+                  </button>
+                </div>
               )}
             </div>
           </div>
@@ -1190,8 +1232,16 @@ export default function HostConsole({ onOpenDisplay, onRoomCodeReady, onLockCons
                       {idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `#${idx + 1}`}
                     </span>
                     <span className="font-bold">{player.name}</span>
+                    {player.wonOnTieBreak && (
+                      <span className="text-[10px] bg-amber-500/20 text-amber-300 border border-amber-500/40 px-1.5 py-0.5 rounded font-mono font-bold">
+                        ⚡ Speed Winner
+                      </span>
+                    )}
                   </div>
-                  <span className="font-mono font-black text-purple-400">{player.score} pts</span>
+                  <div className="text-right">
+                    <span className="font-mono font-black text-purple-400">{player.score} pts</span>
+                    <span className="block text-[10px] text-slate-400 font-mono">⏱️ {player.formattedTime}</span>
+                  </div>
                 </div>
               ))}
             </div>
