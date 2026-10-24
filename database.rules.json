@@ -1,0 +1,114 @@
+{
+  "rules": {
+    /* Deny global read and write access to the root of the database */
+    ".read": false,
+    ".write": false,
+
+    "rooms": {
+      /* Prevent listing or crawling the entire list of active rooms */
+      ".read": false,
+      ".write": false,
+
+      "$roomCode": {
+        /* Read is granted only to clients accessing a specific 4-digit PIN */
+        ".read": "$roomCode.matches(/^[0-9]{4}$/)",
+
+        /* Write is granted only for valid 4-digit PIN room paths */
+        ".write": "$roomCode.matches(/^[0-9]{4}$/)",
+
+        /* Ensure room data conforms to QuizPulse structure */
+        ".validate": "newData.hasChildren(['roomCode', 'status'])",
+
+        "roomCode": {
+          ".validate": "newData.isString() && newData.val().matches(/^[0-9]{4}$/)"
+        },
+        "status": {
+          ".validate": "newData.isString() && (newData.val() === 'lobby' || newData.val() === 'splash' || newData.val() === 'question' || newData.val() === 'reveal' || newData.val() === 'leaderboard' || newData.val() === 'finished' || newData.val() === 'closed')"
+        },
+        "currentQuestionIndex": {
+          ".validate": "newData.isNumber() && newData.val() >= 0"
+        },
+        "createdAt": {
+          ".validate": "newData.isNumber()"
+        },
+        "timeLimit": {
+          ".validate": "newData.isNumber() && newData.val() >= 0"
+        },
+        "questionStartTime": {
+          ".validate": "newData.isNumber()"
+        },
+        "paSparetClueIndex": {
+          ".validate": "newData.isNumber() && newData.val() >= 0"
+        },
+        "revealStage": {
+          ".validate": "newData.isNumber() && newData.val() >= 1 && newData.val() <= 4"
+        },
+        "showScoreboardAfterQuestion": {
+          ".validate": "newData.isBoolean()"
+        },
+
+        /* Questions array / objects */
+        "questions": {
+          ".validate": "newData.hasChildren()"
+        },
+
+        /* Players collection validation */
+        "players": {
+          "$playerId": {
+            /* Required player fields when joining */
+            ".validate": "newData.hasChildren(['id', 'name'])",
+            "id": {
+              ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 64"
+            },
+            "name": {
+              ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 30"
+            },
+            "score": {
+              ".validate": "newData.isNumber() && newData.val() >= 0"
+            },
+            "joinedAt": {
+              ".validate": "newData.isNumber()"
+            },
+
+            /* Individual player answers per question */
+            "answers": {
+              "$qIndex": {
+                ".validate": "newData.hasChildren(['answeredAt']) || newData.hasChildren(['choiceIndex']) || newData.hasChildren(['textAnswer']) || newData.hasChildren(['lat', 'lng'])",
+                "choiceIndex": {
+                  ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 10"
+                },
+                "choiceText": {
+                  ".validate": "newData.isString() && newData.val().length <= 200"
+                },
+                "textAnswer": {
+                  ".validate": "newData.isString() && newData.val().length <= 200"
+                },
+                "lat": {
+                  ".validate": "newData.isNumber() && newData.val() >= -90 && newData.val() <= 90"
+                },
+                "lng": {
+                  ".validate": "newData.isNumber() && newData.val() >= -180 && newData.val() <= 180"
+                },
+                "isCorrect": {
+                  ".validate": "newData.isBoolean()"
+                },
+                "isWinner": {
+                  ".validate": "newData.isBoolean()"
+                },
+                "pointsAwarded": {
+                  ".validate": "newData.isNumber() && newData.val() >= 0"
+                },
+                "timeElapsedSec": {
+                  ".validate": "newData.isNumber() && newData.val() >= 0"
+                },
+                "answeredAt": {
+                  ".validate": "newData.isNumber()"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

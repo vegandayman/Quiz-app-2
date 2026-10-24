@@ -102,10 +102,41 @@ const answerButtons = [
   { symbol: '■', label: 'Square', bg: 'bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700', border: 'border-emerald-500' }
 ];
 
+const SESSION_STORAGE_KEY = 'quizpulse_player_session';
+
+function getStoredPlayerSession() {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = localStorage.getItem(SESSION_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function storePlayerSession(roomCode, playerId, playerName) {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(
+      SESSION_STORAGE_KEY,
+      JSON.stringify({ roomCode, playerId, playerName, timestamp: Date.now() })
+    );
+  } catch (e) {}
+}
+
+function clearStoredPlayerSession() {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.removeItem(SESSION_STORAGE_KEY);
+  } catch (e) {}
+}
+
 /**
  * PlayerJoin Component
  * 
  * - Handles entering 4-digit PIN and nickname
+ * - Auto-reconnects players if disconnected during an active game
+ * - Allows reclaiming previous player session & scores using identical nickname
  * - Live synchronized answering on player mobile screen
  * - Real-time countdown timer bar
  * - Dynamic score calculation based on question points and speed bonus
@@ -125,6 +156,8 @@ export default function PlayerJoin({ initialRoomCode = '', onOpenHost }) {
   const [playerName, setPlayerName] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+  const [savedSession, setSavedSession] = useState(getStoredPlayerSession);
+  const [reconnectBanner, setReconnectBanner] = useState(null);
 
   // Player session state
   const [isJoined, setIsJoined] = useState(false);
@@ -139,6 +172,78 @@ export default function PlayerJoin({ initialRoomCode = '', onOpenHost }) {
   const [isMapExpanded, setIsMapExpanded] = useState(false);
   const [showPhotoModal, setShowPhotoModal] = useState(false);
   const [timeLeft, setTimeLeft] = useState(20);
+
+  // Quick Resume / Reconnect handler
+  const handleQuickResume = async (savedCode, savedId, savedName) => {
+    if (!savedCode || !savedName) return false;
+    setIsLoading(true);
+    setErrorMessage('');
+    try {
+      const roomRef = ref(db, `rooms/${savedCode}`);
+      const snapshot = await get(roomRef);
+      if (!snapshot.exists()) {
+        clearStoredPlayerSession();
+        setSavedSession(null);
+        setIsLoading(false);
+        return false;
+      }
+      const data = snapshot.val();
+      if (data.status === 'closed') {
+        clearStoredPlayerSession();
+        setSavedSession(null);
+        setIsLoading(false);
+        return false;
+      }
+
+      // Check if player exists by savedId or by matching name
+      let matchedPlayerId = savedId;
+      let matchedPlayer = data.players?.[savedId];
+
+      if (!matchedPlayer && data.players) {
+        const found = Object.entries(data.players).find(
+          ([, p]) => p.name && p.name.trim().toLowerCase() === savedName.trim().toLowerCase()
+        );
+        if (found) {
+          matchedPlayerId = found[0];
+          matchedPlayer = found[1];
+        }
+      }
+
+      if (matchedPlayer) {
+        setCurrentPlayerId(matchedPlayerId);
+        setPlayerName(matchedPlayer.name);
+        setJoinedRoomCode(savedCode);
+        setRoomCode(savedCode);
+        setIsJoined(true);
+        storePlayerSession(savedCode, matchedPlayerId, matchedPlayer.name);
+        setReconnectBanner(`Reconnected as ${matchedPlayer.name}! (${matchedPlayer.score || 0} pts)`);
+        setTimeout(() => setReconnectBanner(null), 4000);
+        setIsLoading(false);
+        return true;
+      } else {
+        clearStoredPlayerSession();
+        setSavedSession(null);
+        setIsLoading(false);
+        return false;
+      }
+    } catch (err) {
+      console.error('Error during session recovery:', err);
+      setIsLoading(false);
+      return false;
+    }
+  };
+
+  // Auto-reconnect on initial mount if saved session is present on this device
+  useEffect(() => {
+    const session = getStoredPlayerSession();
+    if (!session || !session.roomCode || (!session.playerId && !session.playerName)) return;
+
+    if (initialRoomCode && session.roomCode !== initialRoomCode) {
+      return;
+    }
+
+    handleQuickResume(session.roomCode, session.playerId, session.playerName);
+  }, []);
 
   // Sync if prop changes externally
   useEffect(() => {
@@ -194,13 +299,35 @@ export default function PlayerJoin({ initialRoomCode = '', onOpenHost }) {
         return;
       }
 
-      if (data.status !== 'lobby') {
-        setErrorMessage('This game has already started. You cannot join now.');
+      // Check if player with this nickname already exists in the room (RECONNECT / RECLAIM)
+      const existingPlayerEntry = data.players
+        ? Object.entries(data.players).find(
+            ([, p]) => p.name && p.name.trim().toLowerCase() === trimmedName.toLowerCase()
+          )
+        : null;
+
+      if (existingPlayerEntry) {
+        // Reclaim existing seat and preserve points/answers!
+        const [existingId, existingPlayer] = existingPlayerEntry;
+        setCurrentPlayerId(existingId);
+        setPlayerName(existingPlayer.name);
+        setJoinedRoomCode(trimmedCode);
+        setIsJoined(true);
+        storePlayerSession(trimmedCode, existingId, existingPlayer.name);
+        setReconnectBanner(`Reconnected as ${existingPlayer.name}! (${existingPlayer.score || 0} pts)`);
+        setTimeout(() => setReconnectBanner(null), 4000);
         setIsLoading(false);
         return;
       }
 
-      // Add player to rooms/{roomCode}/players/{playerId}
+      // If nickname is new and game is already past lobby, instruct player
+      if (data.status !== 'lobby') {
+        setErrorMessage('This game is already in progress. If you were disconnected, make sure to enter your exact previous nickname to reclaim your score.');
+        setIsLoading(false);
+        return;
+      }
+
+      // Add new player to rooms/{roomCode}/players/{playerId}
       const playersListRef = ref(db, `rooms/${trimmedCode}/players`);
       const newPlayerRef = push(playersListRef);
       const generatedPlayerId = newPlayerRef.key;
@@ -215,6 +342,7 @@ export default function PlayerJoin({ initialRoomCode = '', onOpenHost }) {
       setCurrentPlayerId(generatedPlayerId);
       setJoinedRoomCode(trimmedCode);
       setIsJoined(true);
+      storePlayerSession(trimmedCode, generatedPlayerId, trimmedName);
       setIsLoading(false);
     } catch (err) {
       console.error('Error joining room in Firebase:', err);
@@ -227,6 +355,8 @@ export default function PlayerJoin({ initialRoomCode = '', onOpenHost }) {
 
   // Leave / Join New Room Action
   const handleLeaveAndJoinNew = () => {
+    clearStoredPlayerSession();
+    setSavedSession(null);
     setIsJoined(false);
     setJoinedRoomCode('');
     setCurrentPlayerId('');
@@ -535,6 +665,22 @@ export default function PlayerJoin({ initialRoomCode = '', onOpenHost }) {
             </button>
           </div>
         </header>
+
+        {reconnectBanner && (
+          <div className="mt-3 px-3.5 py-2.5 rounded-xl bg-emerald-950/90 border border-emerald-500/60 text-emerald-200 text-xs font-bold flex items-center justify-between gap-2 shadow-lg shadow-emerald-950/50">
+            <div className="flex items-center gap-2">
+              <CheckCircleIcon className="w-4 h-4 text-emerald-400 shrink-0" />
+              <span>{reconnectBanner}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setReconnectBanner(null)}
+              className="text-emerald-400 hover:text-white font-bold text-xs cursor-pointer px-1"
+            >
+              ✕
+            </button>
+          </div>
+        )}
 
         {/* NOTICE: ROOM CLOSED BY HOST */}
         {status === 'closed' && (
@@ -1345,6 +1491,38 @@ export default function PlayerJoin({ initialRoomCode = '', onOpenHost }) {
             <h2 className="text-xl font-black text-white">Join Quiz</h2>
             <p className="text-xs text-slate-400">Enter the 4-digit PIN on the live display</p>
           </div>
+
+          {savedSession && (
+            <div className="mb-5 p-4 rounded-2xl bg-purple-950/50 border border-purple-500/50 text-left space-y-2.5">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold text-purple-300 uppercase tracking-wider flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                  Previous Session Found
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    clearStoredPlayerSession();
+                    setSavedSession(null);
+                  }}
+                  className="text-[10px] text-slate-400 hover:text-slate-200 cursor-pointer"
+                >
+                  Forget
+                </button>
+              </div>
+              <p className="text-xs text-slate-200">
+                Resume playing as <strong className="text-emerald-400 font-bold">{savedSession.playerName}</strong> in Room <span className="font-mono text-purple-300 font-bold">#{savedSession.roomCode}</span>?
+              </p>
+              <button
+                type="button"
+                onClick={() => handleQuickResume(savedSession.roomCode, savedSession.playerId, savedSession.playerName)}
+                disabled={isLoading}
+                className="w-full py-2.5 px-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold rounded-xl shadow cursor-pointer transition-all flex items-center justify-center gap-1.5"
+              >
+                {isLoading ? <LoaderIcon className="w-3.5 h-3.5" /> : <span>Resume Game &rarr;</span>}
+              </button>
+            </div>
+          )}
 
           <form onSubmit={handleJoinRoom} className="space-y-4">
             <div>
