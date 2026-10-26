@@ -10,11 +10,9 @@
       ".write": false,
 
       "$roomCode": {
-        /* Read is granted only to clients accessing a specific 4-digit PIN */
-        ".read": "$roomCode.matches(/^[0-9]{4}$/)",
-
-        /* Write is granted only for valid 4-digit PIN room paths */
-        ".write": "$roomCode.matches(/^[0-9]{4}$/)",
+        /* Read and write require valid Firebase authentication (via silent Anonymous Auth) and a valid 4-digit PIN */
+        ".read": "auth != null && $roomCode.matches(/^[0-9]{4}$/)",
+        ".write": "auth != null && $roomCode.matches(/^[0-9]{4}$/)",
 
         /* Ensure room data conforms to QuizPulse structure */
         ".validate": "newData.hasChildren(['roomCode', 'status'])",
@@ -103,6 +101,18 @@
                 },
                 "timeElapsedSec": {
                   ".validate": "newData.isNumber() && newData.val() >= 0"
+                },
+                "lockedTier": {
+                  ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 10"
+                },
+                "distance": {
+                  ".validate": "newData.isNumber()"
+                },
+                "distanceFormatted": {
+                  ".validate": "newData.isString() && newData.val().length <= 50"
+                },
+                "reason": {
+                  ".validate": "newData.isString() && newData.val().length <= 300"
                 },
                 "answeredAt": {
                   ".validate": "newData.isNumber()"

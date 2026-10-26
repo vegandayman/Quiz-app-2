@@ -764,12 +764,12 @@ export default function LiveDisplay({ roomCode: initialRoomCode = '', onSwitchTo
           <main className="my-auto w-full max-w-4xl mx-auto flex flex-col items-center text-center relative z-10 py-6">
             <div className="inline-block mb-4">
               <span className="px-4 py-1.5 rounded-full bg-gradient-to-r from-amber-500/20 via-purple-500/20 to-pink-500/20 border border-amber-500/30 text-amber-300 text-xs font-mono font-bold uppercase tracking-widest shadow-lg">
-                {currentQuestion?.badge || 'Next Up'}
+                {currentQuestion?.badge || 'Welcome'}
               </span>
             </div>
 
             <h1 className="text-4xl sm:text-6xl md:text-7xl font-black tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-white via-amber-200 to-purple-200 drop-shadow-[0_10px_35px_rgba(245,158,11,0.25)] mb-4 leading-tight">
-              {currentQuestion?.title || 'Now the Music Round!'}
+              {currentQuestion?.title || 'Welcome to QuizPulse Live!'}
             </h1>
 
             {currentQuestion?.subtitle && (
@@ -797,7 +797,7 @@ export default function LiveDisplay({ roomCode: initialRoomCode = '', onSwitchTo
         <footer className="text-center text-slate-400 text-xs relative z-10 flex items-center justify-center gap-2">
           <span className="w-2 h-2 rounded-full bg-purple-400 animate-pulse" />
           <span>
-            {currentQuestion?.rules?.length
+            {currentQIndex === 0
               ? 'Quiz Master will begin Question 1 shortly... Get ready!'
               : 'Quiz Master will begin the round shortly...'}
           </span>

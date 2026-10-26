@@ -137,12 +137,11 @@ const shapes = [
 // Curated themes & presets for fast splash creation
 const splashPresets = [
   {
-    name: '📜 Quiz Intro & Rules',
-    badge: 'Quiz Intro & Rules',
+    name: '👋 Welcome Intro',
+    badge: 'Welcome',
     title: 'Welcome to QuizPulse Live!',
-    subtitle: 'Grab a drink, get comfortable, and warm up your thumbs! Here is how to play and win.',
-    imageUrl: 'https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?auto=format&fit=crop&w=1200&q=80',
-    rules: DEFAULT_RULES_LIST
+    subtitle: 'Grab a drink, get comfortable, and get ready to play!',
+    imageUrl: 'https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?auto=format&fit=crop&w=1200&q=80'
   },
   {
     name: '🎵 Music Round',
@@ -223,14 +222,15 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
           };
         }
         if (q.type === 'splash') {
+          const isIntroSplash = q.id === 'intro-rules-splash';
           return {
             id: q.id || Date.now(),
             type: 'splash',
-            badge: q.badge || (q.rules?.length ? 'Quiz Intro & Rules' : 'Round Announcement'),
-            title: q.title || 'Now the Music Round!',
-            subtitle: q.subtitle || '',
-            imageUrl: q.imageUrl || '',
-            rules: Array.isArray(q.rules) ? q.rules : undefined
+            badge: q.badge || (isIntroSplash ? 'Welcome' : (q.rules?.length ? 'Quiz Intro & Rules' : 'Round Announcement')),
+            title: q.title || (isIntroSplash ? 'Welcome to QuizPulse Live!' : 'Now the Music Round!'),
+            subtitle: q.subtitle !== undefined ? q.subtitle : (isIntroSplash ? 'Grab a drink, get comfortable, and get ready to play!' : ''),
+            imageUrl: q.imageUrl || (isIntroSplash ? DEFAULT_INTRO_RULES_SPLASH.imageUrl : ''),
+            rules: isIntroSplash ? undefined : (Array.isArray(q.rules) && q.rules.length > 0 ? q.rules : undefined)
           };
         }
         if (q.type === 'closest_pin') {

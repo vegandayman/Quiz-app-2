@@ -542,7 +542,7 @@ export default function PlayerJoin({ initialRoomCode = '', onOpenHost }) {
     setIsSubmittingPin(false);
   };
 
-  // Handle Player Pulling Emergency Brake for På Spåret
+  // Handle Player Submitting / Locking in Answer for På Spåret
   const handleSubmitPaSparet = async (e) => {
     if (e && e.preventDefault) e.preventDefault();
     const trimmed = playerTextInput.trim();
@@ -724,7 +724,7 @@ export default function PlayerJoin({ initialRoomCode = '', onOpenHost }) {
             <div className="w-full p-5 sm:p-7 rounded-3xl bg-slate-900 border border-amber-500/40 shadow-2xl space-y-4">
               <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300 text-xs font-bold uppercase tracking-wider">
                 <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
-                {currentQuestion?.badge || (currentQuestion?.rules?.length ? 'Quiz Intro & Rules' : 'Round Announcement')}
+                {currentQuestion?.badge || 'Welcome'}
               </span>
 
               <h2 className="text-2xl sm:text-3xl font-black text-white leading-tight">
@@ -1067,88 +1067,91 @@ export default function PlayerJoin({ initialRoomCode = '', onOpenHost }) {
               myAnswer === null ? (
                 timeLeft > 0 ? (
                   <form onSubmit={handleSubmitPaSparet} className="w-full space-y-4">
-                    {/* Emergency Brake Tier Alert Banner */}
-                    <div className="bg-gradient-to-r from-red-950/80 via-amber-950/60 to-red-950/80 border-2 border-red-500/60 rounded-3xl p-4 shadow-xl text-center space-y-2">
-                      <div className="flex items-center justify-between">
-                        <span className="px-2.5 py-1 rounded-lg bg-red-600/30 border border-red-500/50 text-red-200 text-xs font-mono font-black uppercase tracking-wider flex items-center gap-1.5">
-                          <span className="w-2 h-2 rounded-full bg-red-400 animate-ping" />
-                          EMERGENCY BRAKE
-                        </span>
-                        <span className="text-xs font-mono text-amber-300 font-bold">
-                          {nextPaSparetDropSec > 0 ? `Drops in ${nextPaSparetDropSec}s` : 'Final Tier!'}
-                        </span>
-                      </div>
+                    {/* Current Clue Card (Clean, focused, easy to read on mobile) */}
+                    {(() => {
+                      const unlockedClues = (currentQuestion.clues || []).filter(
+                        (clue) => elapsedSinceQuestionStart >= clue.timeSec
+                      );
+                      const currentClue = unlockedClues.length > 0
+                        ? unlockedClues[unlockedClues.length - 1]
+                        : (currentQuestion.clues?.[0] || { tier: 10, text: 'Look up at the train footage on the big screen!' });
+                      const previousClues = unlockedClues.slice(0, -1);
 
-                      <div className="py-2">
-                        <p className="text-[11px] uppercase tracking-widest text-slate-400 font-bold">Current Active Reward</p>
-                        <h4 className="text-4xl font-black text-amber-300 tracking-tight drop-shadow">
-                          {currentPaSparetTier} <span className="text-xl font-bold text-amber-400/90">POINTS</span>
-                        </h4>
-                      </div>
-
-                      <p className="text-[11px] text-slate-300 leading-relaxed">
-                        Pulling the brake locks in your score. The earlier you brake, the higher your points!
-                      </p>
-                    </div>
-
-                    {/* Unlocked Clues Feed */}
-                    <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-4 space-y-2 text-left shadow-lg">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block px-1">
-                        Unlocked Clues Feed:
-                      </span>
-                      <div className="space-y-2 max-h-48 overflow-y-auto">
-                        {(currentQuestion.clues || [])
-                          .filter(clue => elapsedSinceQuestionStart >= clue.timeSec)
-                          .map((clue, idx) => (
-                            <div key={idx} className="p-2.5 rounded-xl bg-slate-950 border border-amber-500/30 flex items-start gap-2.5">
-                              <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 font-mono text-xs font-bold shrink-0">
-                                {clue.tier}p
+                      return (
+                        <div className="space-y-4">
+                          <div className="bg-slate-900 border border-amber-500/40 rounded-3xl p-5 shadow-2xl text-left space-y-3">
+                            <div className="flex items-center justify-between">
+                              <span className="px-3 py-1 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300 font-mono text-xs font-bold uppercase tracking-wider">
+                                {currentClue.tier || currentPaSparetTier} Points Clue
                               </span>
-                              <p className="text-xs text-slate-200 leading-snug">{clue.text}</p>
+                              {nextPaSparetDropSec > 0 && (
+                                <span className="text-[11px] font-mono text-slate-400">
+                                  Next clue in {nextPaSparetDropSec}s
+                                </span>
+                              )}
                             </div>
-                          ))}
-                      </div>
-                    </div>
 
-                    {/* Destination Guess Free-Text Input */}
-                    <div className="bg-slate-900/90 border-2 border-amber-500/40 rounded-3xl p-4 shadow-xl space-y-2 text-left">
-                      <label className="text-xs font-bold uppercase tracking-wider text-amber-300 flex items-center gap-1.5">
-                        <TrainIcon className="w-4 h-4 text-amber-400" />
-                        <span>Enter Destination City:</span>
-                      </label>
-                      <input
-                        type="text"
-                        autoFocus
-                        value={playerTextInput}
-                        onChange={(e) => setPlayerTextInput(e.target.value)}
-                        placeholder="e.g. Gothenburg / Göteborg..."
-                        className="w-full bg-slate-950 border border-slate-700 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 rounded-2xl px-4 py-3.5 text-base sm:text-lg font-bold text-white placeholder-slate-600 outline-none transition-all"
-                      />
-                    </div>
+                            <p className="text-base sm:text-lg text-white font-medium leading-relaxed">
+                              {currentClue.text}
+                            </p>
 
-                    {/* Large Red Emergency Brake Button */}
-                    <button
-                      type="submit"
-                      disabled={!playerTextInput.trim() || isSubmittingText}
-                      className="w-full py-4 rounded-2xl bg-gradient-to-r from-red-600 via-rose-600 to-red-700 hover:from-red-500 hover:to-rose-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-black text-base sm:text-lg shadow-xl shadow-red-700/40 active:scale-98 transition-all cursor-pointer flex flex-col items-center justify-center gap-0.5 border-2 border-red-400/50"
-                    >
-                      {isSubmittingText ? (
-                        <div className="flex items-center gap-2">
-                          <LoaderIcon className="w-5 h-5 text-white" />
-                          <span>Pulling Emergency Brake...</span>
-                        </div>
-                      ) : (
-                        <>
-                          <div className="flex items-center gap-2">
-                            <span className="text-xl">🛑</span>
-                            <span>PULL EMERGENCY BRAKE</span>
+                            {previousClues.length > 0 && (
+                              <details className="pt-2 border-t border-slate-800/80 group">
+                                <summary className="text-[11px] text-slate-400 hover:text-amber-300 cursor-pointer font-medium select-none flex items-center gap-1 transition-colors">
+                                  <span>View previous clues ({previousClues.length})</span>
+                                </summary>
+                                <div className="mt-2.5 space-y-2 max-h-36 overflow-y-auto pr-1">
+                                  {previousClues.map((clue, idx) => (
+                                    <div key={idx} className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 flex items-start gap-2 text-xs">
+                                      <span className="px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 font-mono text-[10px] font-bold shrink-0">
+                                        {clue.tier}p
+                                      </span>
+                                      <p className="text-slate-300 text-xs leading-snug">{clue.text}</p>
+                                    </div>
+                                  ))}
+                                </div>
+                              </details>
+                            )}
                           </div>
-                          <span className="text-[11px] font-mono font-normal opacity-90">
-                            Lock in now for {currentPaSparetTier} Points
-                          </span>
-                        </>
-                      )}
-                    </button>
+
+                          {/* Destination Answer Input */}
+                          <div className="space-y-1.5 text-left">
+                            <label className="text-xs font-bold uppercase tracking-wider text-slate-300 block px-1">
+                              Your Answer (Destination City):
+                            </label>
+                            <input
+                              type="text"
+                              autoFocus
+                              value={playerTextInput}
+                              onChange={(e) => setPlayerTextInput(e.target.value)}
+                              placeholder="e.g. Gothenburg / Göteborg..."
+                              className="w-full bg-slate-900 border border-slate-700 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 rounded-2xl px-4 py-3.5 text-base sm:text-lg font-bold text-white placeholder-slate-500 outline-none transition-all shadow-inner"
+                            />
+                          </div>
+
+                          {/* Submit / Lock In Answer Button */}
+                          <button
+                            type="submit"
+                            disabled={!playerTextInput.trim() || isSubmittingText}
+                            className="w-full py-4 rounded-2xl bg-amber-500 hover:bg-amber-400 disabled:opacity-40 disabled:cursor-not-allowed text-slate-950 font-black text-base sm:text-lg shadow-xl shadow-amber-500/20 active:scale-[0.98] transition-all cursor-pointer flex items-center justify-center gap-2 border border-amber-300"
+                          >
+                            {isSubmittingText ? (
+                              <div className="flex items-center gap-2">
+                                <LoaderIcon className="w-5 h-5 text-slate-950 animate-spin" />
+                                <span>Locking in answer...</span>
+                              </div>
+                            ) : (
+                              <>
+                                <span>Lock In Answer</span>
+                                <span className="px-2 py-0.5 rounded-full bg-slate-950/20 text-slate-900 font-mono text-xs font-bold">
+                                  {currentPaSparetTier} pts
+                                </span>
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      );
+                    })()}
                   </form>
                 ) : (
                   <div className="py-12 px-6 rounded-3xl bg-slate-900 border border-slate-800 text-center w-full shadow-2xl">
@@ -1162,26 +1165,27 @@ export default function PlayerJoin({ initialRoomCode = '', onOpenHost }) {
                   </div>
                 )
               ) : (
-                /* Emergency Brake Engaged Screen */
-                <div className="py-8 px-6 rounded-3xl bg-slate-900 border-2 border-amber-500/50 text-center w-full shadow-2xl space-y-4">
-                  <div className="w-16 h-16 mx-auto rounded-full bg-red-600/20 border border-red-500 flex items-center justify-center text-red-400 mb-2 shadow-lg shadow-red-600/30">
-                    <span className="text-3xl animate-pulse">🛑</span>
+                /* Answer Locked In Screen */
+                <div className="py-8 px-6 rounded-3xl bg-slate-900 border border-amber-500/40 text-center w-full shadow-2xl space-y-4">
+                  <div className="w-16 h-16 mx-auto rounded-full bg-amber-500/20 border border-amber-500/50 flex items-center justify-center text-amber-400 mb-2 shadow-lg shadow-amber-500/20">
+                    <CheckCircleIcon className="w-8 h-8" />
                   </div>
-                  <h3 className="text-2xl font-black text-white">Emergency Brake Pulled!</h3>
-                  <div className="p-4 rounded-2xl bg-slate-950 border border-amber-500/30 space-y-1.5">
+                  <h3 className="text-2xl font-black text-white">Answer Locked In!</h3>
+                  <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-1.5">
                     <span className="text-[11px] text-slate-400 uppercase tracking-wider font-bold block">Your Locked Guess:</span>
                     <strong className="text-amber-300 font-sans text-xl block">
                       "{typeof myAnswer === 'object' ? myAnswer.text : (lastAnswerObj?.textAnswer || myAnswer)}"
                     </strong>
                     <span className="inline-block mt-1 px-3 py-1 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300 font-mono text-xs font-bold">
-                      Locked at {lastAnswerObj?.lockedTier || (typeof myAnswer === 'object' ? myAnswer.lockedTier : currentPaSparetTier)} Points Tier
+                      Locked in for up to {lastAnswerObj?.lockedTier || (typeof myAnswer === 'object' ? myAnswer.lockedTier : currentPaSparetTier)} Points
                     </span>
                   </div>
                   <p className="text-xs text-slate-400 leading-relaxed">
-                    Train cab view is still streaming on the big screen. Destination will reveal at the end of the journey!
+                    The train journey continues on the big screen! Destination will reveal when time expires.
                   </p>
                 </div>
               )
+
             ) : (
               /* Multiple-Choice Question Mode */
               myAnswer === null ? (
@@ -1345,7 +1349,7 @@ export default function PlayerJoin({ initialRoomCode = '', onOpenHost }) {
                 ) : (
                   <div className="p-8 rounded-3xl bg-slate-900 border border-slate-800 shadow-2xl w-full space-y-3">
                     <TrainIcon className="w-14 h-14 text-amber-400 mx-auto opacity-70" />
-                    <h2 className="text-xl font-black text-white">No Brake Pulled</h2>
+                    <h2 className="text-xl font-black text-white">No Answer Submitted</h2>
                     <p className="text-xs text-slate-400">
                       The destination was <strong className="text-amber-300">{currentQuestion.destination || currentQuestion.correctAnswer}</strong>
                     </p>

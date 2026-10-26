@@ -11,6 +11,7 @@ import HostLockScreen, {
   isHostAuthenticated,
   clearHostAuthentication
 } from './components/HostLockScreen.jsx';
+import { ensureAuth } from './firebase.js';
 
 export default function App() {
   // Determine which role this specific tab is responsible for rendering
@@ -37,6 +38,11 @@ export default function App() {
   const [activeRole, setActiveRole] = useState(getInitialRole);
   const [activePin, setActivePin] = useState(getInitialPin);
   const [isHostAuthed, setIsHostAuthed] = useState(() => isHostAuthenticated());
+
+  // Silently initialize Firebase auth on mount
+  useEffect(() => {
+    ensureAuth();
+  }, []);
 
   // Listen to browser navigation / popstate
   useEffect(() => {

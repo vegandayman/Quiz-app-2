@@ -293,11 +293,21 @@ export default function HostConsole({ onOpenDisplay, onRoomCodeReady, onLockCons
 
     const roomRef = ref(db, `rooms/${roomCode}`);
 
+    // Ensure default intro splash screen is stripped of any legacy rules cards
+    const sanitizedInitQuestions = activeQuestions.map((q) => {
+      if (q.id === 'intro-rules-splash' && q.rules) {
+        const copy = { ...q };
+        delete copy.rules;
+        return copy;
+      }
+      return q;
+    });
+
     update(roomRef, {
       roomCode,
       status: 'lobby',
       currentQuestionIndex: 0,
-      questions: activeQuestions,
+      questions: sanitizedInitQuestions,
       showScoreboardAfterQuestion: false,
       createdAt: Date.now()
     }).catch((err) => console.error('Error initializing room:', err));
