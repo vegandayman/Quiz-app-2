@@ -2,12 +2,24 @@ import React, { useState, useEffect } from 'react';
 import { ref, onValue, update } from 'firebase/database';
 import { db } from '../firebase.js';
 import QuizMaker from './QuizMaker.jsx';
+import ShareQuizModal from './ShareQuizModal.jsx';
+import { loadQuizFromCloud } from '../utils/quizSharing.js';
 import { findClosestPlayers } from '../utils/geoDistance.js';
 import { getStoredMasterPasscode, setStoredMasterPasscode } from './HostLockScreen.jsx';
 import { rankPlayersWithTieBreak, detectTopTie } from '../utils/tieBreaker.js';
 import { DEFAULT_INTRO_RULES_SPLASH } from '../data/introSplashDefaults.js';
 
 // Clean inline SVGs (zero external dependencies)
+const ShareIcon = ({ className = 'w-4 h-4' }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="18" cy="5" r="3" />
+    <circle cx="6" cy="12" r="3" />
+    <circle cx="18" cy="19" r="3" />
+    <line x1="8.59" x2="15.42" y1="13.51" y2="17.49" />
+    <line x1="15.41" x2="8.59" y1="6.51" y2="10.49" />
+  </svg>
+);
+
 const LockIcon = ({ className = 'w-4 h-4' }) => (
   <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <rect width="18" height="11" x="3" y="11" rx="2" ry="2" />
@@ -267,18 +279,57 @@ const defaultQuestions = [
  * - Reveals answers on the big screen
  * - Shows live leaderboards and advances rounds
  */
-export default function HostConsole({ onOpenDisplay, onRoomCodeReady, onLockConsole, onSwitchToPlayer }) {
+export default function HostConsole({ onOpenDisplay, onRoomCodeReady, onLockConsole, onSwitchToPlayer, initialQuizId = '' }) {
   const [roomCode, setRoomCode] = useState(() => Math.floor(1000 + Math.random() * 9000).toString());
   const [roomData, setRoomData] = useState(null);
   const [currentQIndex, setCurrentQIndex] = useState(0);
   const [activeQuestions, setActiveQuestions] = useState(defaultQuestions);
   const [showScoreboardAfterQuestion, setShowScoreboardAfterQuestion] = useState(false);
+  const [quizTitle, setQuizTitle] = useState('My Custom Quiz');
   const [isQuizMakerOpen, setIsQuizMakerOpen] = useState(false);
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
+  const [quizBanner, setQuizBanner] = useState(null);
   const [timeLeft, setTimeLeft] = useState(60);
   const [copiedLink, setCopiedLink] = useState(false);
   const [showPasscodeModal, setShowPasscodeModal] = useState(false);
   const [newPasscodeVal, setNewPasscodeVal] = useState('');
   const [passcodeSuccessMsg, setPasscodeSuccessMsg] = useState('');
+
+  // Automatically load shared quiz if friend arrived via 1-click host invite link
+  useEffect(() => {
+    if (!initialQuizId) return;
+    let isMounted = true;
+    loadQuizFromCloud(initialQuizId)
+      .then((data) => {
+        if (!isMounted) return;
+        if (data.title) setQuizTitle(data.title);
+        if (data.showScoreboardAfterQuestion !== undefined) {
+          setShowScoreboardAfterQuestion(Boolean(data.showScoreboardAfterQuestion));
+        }
+        if (data.questions && Array.isArray(data.questions)) {
+          setActiveQuestions(data.questions);
+          setCurrentQIndex(0);
+          if (roomCode) {
+            update(ref(db, `rooms/${roomCode}`), {
+              questions: data.questions,
+              showScoreboardAfterQuestion: Boolean(data.showScoreboardAfterQuestion),
+              currentQuestionIndex: 0
+            }).catch(console.error);
+          }
+        }
+        setQuizBanner({
+          title: data.title || 'Shared Quiz',
+          count: data.questions?.filter((q) => q.type !== 'splash' && q.type !== 'end').length || 0
+        });
+      })
+      .catch((err) => {
+        console.warn('Could not load shared quiz from URL:', err);
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, [initialQuizId, roomCode]);
+
 
   // Notify parent of room code
   useEffect(() => {
@@ -352,6 +403,7 @@ export default function HostConsole({ onOpenDisplay, onRoomCodeReady, onLockCons
     const scoreboardSetting = showScoreboard !== undefined ? showScoreboard : showScoreboardAfterQuestion;
     setActiveQuestions(newQuestions);
     setShowScoreboardAfterQuestion(scoreboardSetting);
+    if (title) setQuizTitle(title);
     setCurrentQIndex(0);
 
     if (roomCode) {
@@ -689,6 +741,16 @@ export default function HostConsole({ onOpenDisplay, onRoomCodeReady, onLockCons
 
           <button
             type="button"
+            onClick={() => setIsShareModalOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-200 border border-indigo-500/40 text-xs font-semibold cursor-pointer transition-all"
+            title="Share a 1-click host link with a friend or load a saved quiz"
+          >
+            <ShareIcon className="w-3.5 h-3.5 text-indigo-400" />
+            <span>Share / Load Quiz</span>
+          </button>
+
+          <button
+            type="button"
             onClick={handleToggleScoreboardSetting}
             title={showScoreboardAfterQuestion ? 'Scoreboard enabled after questions. Click to toggle OFF.' : 'Scoreboard disabled (ending questions goes directly to next question). Click to toggle ON.'}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold cursor-pointer transition-all ${
@@ -766,6 +828,29 @@ export default function HostConsole({ onOpenDisplay, onRoomCodeReady, onLockCons
 
       {/* Main Control Dashboard */}
       <main className="max-w-5xl mx-auto w-full flex-1 my-6 space-y-6">
+        {quizBanner && (
+          <div className="bg-gradient-to-r from-emerald-950/60 via-teal-900/40 to-slate-900 border border-emerald-500/50 rounded-2xl p-4 shadow-xl flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-300 font-bold shrink-0">
+                ✨
+              </div>
+              <div>
+                <p className="text-xs text-emerald-300 font-bold uppercase tracking-wider">Shared Quiz Loaded</p>
+                <p className="text-sm font-bold text-white">{quizBanner.title}</p>
+                <p className="text-xs text-slate-300">
+                  {quizBanner.count} questions mounted &middot; Room PIN is <strong className="font-mono text-purple-300">{roomCode}</strong>. Ready to host!
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setQuizBanner(null)}
+              className="text-xs text-slate-400 hover:text-white px-2.5 py-1 rounded-lg bg-slate-800/80 border border-slate-700 cursor-pointer"
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
         
         {/* ======================================================== */}
         {/* PRIMARY QUIZ FLOW CONTROLLER BANNER */}
@@ -1899,6 +1984,22 @@ export default function HostConsole({ onOpenDisplay, onRoomCodeReady, onLockCons
           </div>
         </div>
       )}
+
+      {/* Share / Load Quiz Modal */}
+      <ShareQuizModal
+        isOpen={isShareModalOpen}
+        onClose={() => setIsShareModalOpen(false)}
+        currentQuestions={questions}
+        quizTitle={quizTitle}
+        showScoreboardAfterQuestion={showScoreboardAfterQuestion}
+        onLoadQuiz={(loaded) => {
+          handleSaveQuiz(loaded.questions, loaded.title, loaded.showScoreboardAfterQuestion);
+          setQuizBanner({
+            title: loaded.title,
+            count: loaded.questions.length,
+          });
+        }}
+      />
     </div>
   );
 }

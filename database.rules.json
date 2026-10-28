@@ -122,6 +122,35 @@
           }
         }
       }
+    },
+
+    "quizzes": {
+      /* Prevent listing or crawling all stored quizzes */
+      ".read": false,
+      ".write": false,
+
+      "$quizId": {
+        /* Read and write are granted to authenticated users accessing a specific quiz */
+        ".read": "auth != null",
+        ".write": "auth != null",
+
+        /* Ensure saved quiz conforms to QuizPulse structure */
+        ".validate": "newData.hasChildren(['title', 'questions'])",
+
+        "title": {
+          ".validate": "newData.isString() && newData.val().length <= 100"
+        },
+        "createdAt": {
+          ".validate": "newData.isNumber()"
+        },
+        "showScoreboardAfterQuestion": {
+          ".validate": "newData.isBoolean()"
+        },
+        "questions": {
+          ".validate": "newData.hasChildren()"
+        }
+      }
     }
   }
 }
+

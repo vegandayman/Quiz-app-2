@@ -4,8 +4,19 @@ import { LANDMARK_PRESETS } from '../utils/geoDistance.js';
 import { PA_SPARET_PRESETS, extractYouTubeId } from '../data/paSparetPresets.js';
 import { DEFAULT_INTRO_RULES_SPLASH, DEFAULT_RULES_LIST } from '../data/introSplashDefaults.js';
 import WorldMap from './WorldMap.jsx';
+import ShareQuizModal from './ShareQuizModal.jsx';
 
 // Clean inline SVGs (zero external dependencies)
+const ShareIcon = ({ className = 'w-4 h-4' }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="18" cy="5" r="3" />
+    <circle cx="6" cy="12" r="3" />
+    <circle cx="18" cy="19" r="3" />
+    <line x1="8.59" x2="15.42" y1="13.51" y2="17.49" />
+    <line x1="15.41" x2="8.59" y1="6.51" y2="10.49" />
+  </svg>
+);
+
 const TrainIcon = ({ className = 'w-4 h-4' }) => (
   <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <rect width="16" height="16" x="4" y="3" rx="2" />
@@ -205,6 +216,7 @@ const DEFAULT_END_SCREEN = {
 export default function QuizMaker({ initialQuestions = [], initialShowScoreboardAfterQuestion = false, onSaveQuiz, onClose }) {
   const [quizTitle, setQuizTitle] = useState('My Custom Quiz');
   const [showScoreboardAfterQuestion, setShowScoreboardAfterQuestion] = useState(() => initialShowScoreboardAfterQuestion);
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [questions, setQuestions] = useState(() => {
     if (initialQuestions && initialQuestions.length > 0) {
       const parsed = JSON.parse(JSON.stringify(initialQuestions)).map((q) => {
@@ -1150,6 +1162,16 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
           >
             <DownloadIcon className="w-3.5 h-3.5 text-purple-400" />
             <span>Export JSON</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setIsShareModalOpen(true)}
+            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white text-xs font-bold shadow-md shadow-indigo-600/30 cursor-pointer transition-all"
+            title="Save and create a 1-click link for a friend to host this quiz"
+          >
+            <ShareIcon className="w-3.5 h-3.5 text-indigo-200" />
+            <span>Share Host Link</span>
           </button>
 
           <button
@@ -2782,6 +2804,29 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
           )}
         </main>
       </div>
+
+      {/* 1-Click Host Share Link & Saved Quizzes Modal */}
+      <ShareQuizModal
+        isOpen={isShareModalOpen}
+        onClose={() => setIsShareModalOpen(false)}
+        currentQuiz={{
+          title: quizTitle,
+          questions,
+          showScoreboardAfterQuestion
+        }}
+        onLoadQuiz={(loaded) => {
+          if (loaded.title) setQuizTitle(loaded.title);
+          if (loaded.showScoreboardAfterQuestion !== undefined) {
+            setShowScoreboardAfterQuestion(Boolean(loaded.showScoreboardAfterQuestion));
+          }
+          if (Array.isArray(loaded.questions)) {
+            setQuestions(loaded.questions);
+            setActiveIdx(0);
+          }
+          showNotification(`Loaded "${loaded.title || 'Quiz'}"!`);
+        }}
+      />
     </div>
   );
 }
+
