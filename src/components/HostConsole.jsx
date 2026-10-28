@@ -217,11 +217,11 @@ const defaultQuestions = [
   {
     id: 5,
     type: 'free_input',
-    question: 'What is the secret superhero identity of Peter Parker?',
-    correctAnswer: 'Spider-Man',
-    acceptedAnswers: 'Spider-Man, Spiderman, Spyderman, Peter Parker',
+    question: 'Type your free-text question here...',
+    correctAnswer: '',
+    acceptedAnswers: '',
     points: 1,
-    secretNote: 'Spider-Man made his first appearance in Marvel Comics Amazing Fantasy #15 in August 1962.',
+    secretNote: '',
     timeLimit: 60
   },
   {
@@ -242,8 +242,8 @@ const defaultQuestions = [
     id: 'pa-sparet-gothenburg',
     type: 'pa_sparet',
     question: 'Where are we heading? / Vart är vi på väg?',
-    destination: 'Gothenburg',
-    acceptedAnswers: 'Gothenburg, Göteborg, Goteborg',
+    destination: '',
+    acceptedAnswers: '',
     youtubeUrl: 'https://www.youtube.com/watch?v=q6E2XgS_c_o',
     videoStartTime: 20,
     duration: 90,
@@ -252,10 +252,10 @@ const defaultQuestions = [
       { tier: 8, timeSec: 20, text: 'In this coastal powerhouse, the largest port in the Nordic region welcomes giant freighters beneath the Älvsborg suspension bridge.' },
       { tier: 6, timeSec: 40, text: 'Safety first! The three-point seatbelt and iconic boxy station wagons were born here, alongside Scandinavia’s grandest amusement park.' },
       { tier: 4, timeSec: 60, text: 'Sweden’s second city on the Kattegat sea, where blue-and-white trams glide past the Fish Church and Ullevi stadium.' },
-      { tier: 2, timeSec: 80, text: 'Starts with G! From Avenyn to Poseidon’s fountain, welcome to Göteborg!' }
+      { tier: 2, timeSec: 80, text: 'Starts with G! From Avenyn to Poseidon’s fountain, welcome to our destination!' }
     ],
     points: 10,
-    secretNote: 'Founded in 1621 by King Gustavus Adolphus ("Here the city shall lie!"). Home of Volvo, Hasselblad cameras, and Europe’s iconic Liseberg amusement park.',
+    secretNote: '',
     timeLimit: 90
   },
   {
@@ -1443,9 +1443,30 @@ export default function HostConsole({ onOpenDisplay, onRoomCodeReady, onLockCons
               </div>
             </div>
 
-            <h2 className="text-xl sm:text-2xl font-black text-white">
-              {activeQuestion.question}
-            </h2>
+            <div className="flex flex-col sm:flex-row items-start gap-4">
+              {activeQuestion.imageUrl && (
+                <div className="w-full sm:w-40 h-28 rounded-2xl overflow-hidden border border-purple-500/40 shrink-0 bg-slate-950 shadow-md">
+                  <img
+                    src={activeQuestion.imageUrl}
+                    alt="Question Visual"
+                    className="w-full h-full object-cover"
+                    onError={(e) => {
+                      e.target.style.display = 'none';
+                    }}
+                  />
+                </div>
+              )}
+              <div className="flex-1">
+                <h2 className="text-xl sm:text-2xl font-black text-white">
+                  {activeQuestion.question}
+                </h2>
+                {activeQuestion.imageUrl && (
+                  <span className="text-[11px] text-purple-300 font-medium mt-1 flex items-center gap-1">
+                    <span>🖼️ Image displayed on audience screen</span>
+                  </span>
+                )}
+              </div>
+            </div>
 
             {/* Answer Display: Closest-Pin Target vs Free-Input Target vs Multiple Choice Options */}
             {activeQuestion.type === 'closest_pin' ? (
@@ -1537,7 +1558,7 @@ export default function HostConsole({ onOpenDisplay, onRoomCodeReady, onLockCons
                       Primary Correct Answer:
                     </span>
                     <span className="text-xl font-black text-emerald-300 font-sans">
-                      {activeQuestion.correctAnswer || 'Spider-Man'}
+                      {activeQuestion.correctAnswer || '(No answer set)'}
                     </span>
                   </div>
 
@@ -1989,14 +2010,19 @@ export default function HostConsole({ onOpenDisplay, onRoomCodeReady, onLockCons
       <ShareQuizModal
         isOpen={isShareModalOpen}
         onClose={() => setIsShareModalOpen(false)}
-        currentQuestions={questions}
+        currentQuiz={{
+          title: quizTitle,
+          questions: activeQuestions,
+          showScoreboardAfterQuestion
+        }}
+        currentQuestions={activeQuestions}
         quizTitle={quizTitle}
         showScoreboardAfterQuestion={showScoreboardAfterQuestion}
         onLoadQuiz={(loaded) => {
           handleSaveQuiz(loaded.questions, loaded.title, loaded.showScoreboardAfterQuestion);
           setQuizBanner({
             title: loaded.title,
-            count: loaded.questions.length,
+            count: loaded.questions?.length || 0,
           });
         }}
       />

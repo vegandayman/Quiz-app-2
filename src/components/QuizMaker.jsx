@@ -274,19 +274,24 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
           };
         }
         if (q.type === 'pa_sparet') {
-          const defaultPreset = PA_SPARET_PRESETS[0];
           return {
             ...q,
             type: 'pa_sparet',
             question: q.question || 'Where are we heading? / Vart är vi på väg?',
-            destination: q.destination || q.correctAnswer || defaultPreset.destination,
-            acceptedAnswers: q.acceptedAnswers || defaultPreset.acceptedAnswers,
-            youtubeUrl: q.youtubeUrl || defaultPreset.youtubeUrl,
-            videoStartTime: q.videoStartTime !== undefined && !isNaN(Number(q.videoStartTime)) ? Number(q.videoStartTime) : defaultPreset.videoStartTime,
+            destination: q.destination || q.correctAnswer || '',
+            acceptedAnswers: q.acceptedAnswers || '',
+            youtubeUrl: q.youtubeUrl || '',
+            videoStartTime: q.videoStartTime !== undefined && !isNaN(Number(q.videoStartTime)) ? Number(q.videoStartTime) : 0,
             duration: q.duration && !isNaN(Number(q.duration)) ? Number(q.duration) : 90,
-            clues: Array.isArray(q.clues) && q.clues.length === 5 ? q.clues : JSON.parse(JSON.stringify(defaultPreset.clues)),
+            clues: Array.isArray(q.clues) && q.clues.length === 5 ? q.clues : [
+              { tier: 10, timeSec: 0, text: '' },
+              { tier: 8, timeSec: 20, text: '' },
+              { tier: 6, timeSec: 40, text: '' },
+              { tier: 4, timeSec: 60, text: '' },
+              { tier: 2, timeSec: 80, text: '' }
+            ],
             points: 10,
-            secretNote: q.secretNote !== undefined ? q.secretNote : defaultPreset.secretNote,
+            secretNote: q.secretNote !== undefined ? q.secretNote : '',
             timeLimit: q.timeLimit || q.duration || 90,
             showScoreboardAfterQuestion: q.showScoreboardAfterQuestion !== undefined ? Boolean(q.showScoreboardAfterQuestion) : initialShowScoreboardAfterQuestion
           };
@@ -355,11 +360,11 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
       {
         id: 5,
         type: 'free_input',
-        question: 'What is the superhero secret identity of Peter Parker?',
-        correctAnswer: 'Spider-Man',
-        acceptedAnswers: 'Spider-Man, Spiderman, Spyderman, Peter Parker',
+        question: 'Type your free-text question here...',
+        correctAnswer: '',
+        acceptedAnswers: '',
         points: 1,
-        secretNote: 'Spider-Man made his first appearance in Amazing Fantasy #15 in 1962.',
+        secretNote: '',
         timeLimit: 60,
         showScoreboardAfterQuestion: false
       },
@@ -443,11 +448,11 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
     const newFreeInput = {
       id: Date.now(),
       type: 'free_input',
-      question: 'What is the superhero secret identity of Peter Parker?',
-      correctAnswer: 'Spider-Man',
-      acceptedAnswers: 'Spider-Man, Spiderman, Spyderman, Peter Parker',
+      question: '',
+      correctAnswer: '',
+      acceptedAnswers: '',
       points: 1,
-      secretNote: 'Spider-Man made his first appearance in Amazing Fantasy #15 in 1962.',
+      secretNote: '',
       timeLimit: 60,
       showScoreboardAfterQuestion: showScoreboardAfterQuestion
     };
@@ -490,20 +495,27 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
   };
 
   // Add new På Spåret train journey question slide
-  const handleAddPaSparet = (preset = PA_SPARET_PRESETS[0]) => {
+  const handleAddPaSparet = (preset = null) => {
+    const defaultClues = [
+      { tier: 10, timeSec: 0, text: '' },
+      { tier: 8, timeSec: 20, text: '' },
+      { tier: 6, timeSec: 40, text: '' },
+      { tier: 4, timeSec: 60, text: '' },
+      { tier: 2, timeSec: 80, text: '' }
+    ];
     const newPaSparet = {
       id: Date.now(),
       type: 'pa_sparet',
       question: 'Where are we heading? / Vart är vi på väg?',
-      destination: preset.destination,
-      acceptedAnswers: preset.acceptedAnswers,
-      youtubeUrl: preset.youtubeUrl,
-      videoStartTime: preset.videoStartTime !== undefined ? preset.videoStartTime : 20,
-      duration: preset.duration || 90,
-      clues: JSON.parse(JSON.stringify(preset.clues)),
+      destination: preset ? preset.destination : '',
+      acceptedAnswers: preset ? preset.acceptedAnswers : '',
+      youtubeUrl: preset ? preset.youtubeUrl : '',
+      videoStartTime: preset && preset.videoStartTime !== undefined ? preset.videoStartTime : 0,
+      duration: preset?.duration || 90,
+      clues: preset ? JSON.parse(JSON.stringify(preset.clues)) : defaultClues,
       points: 10,
-      secretNote: preset.secretNote,
-      timeLimit: preset.duration || 90,
+      secretNote: preset?.secretNote || '',
+      timeLimit: preset?.duration || 90,
       showScoreboardAfterQuestion: showScoreboardAfterQuestion
     };
     const endScreenIndex = questions.findIndex((q) => q.type === 'end');
@@ -540,22 +552,28 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
       updated[activeIdx] = {
         ...activeQ,
         type: 'free_input',
-        correctAnswer: activeQ.correctAnswer || defaultCorrectText || 'Spider-Man',
+        correctAnswer: activeQ.correctAnswer || defaultCorrectText || '',
         acceptedAnswers: activeQ.acceptedAnswers || ''
       };
       showNotification('Converted to Free-Input Question (players type their answer)');
     } else if (newType === 'pa_sparet') {
-      const preset = PA_SPARET_PRESETS[0];
+      const defaultClues = [
+        { tier: 10, timeSec: 0, text: '' },
+        { tier: 8, timeSec: 20, text: '' },
+        { tier: 6, timeSec: 40, text: '' },
+        { tier: 4, timeSec: 60, text: '' },
+        { tier: 2, timeSec: 80, text: '' }
+      ];
       updated[activeIdx] = {
         ...activeQ,
         type: 'pa_sparet',
-        question: 'Where are we heading? / Vart är vi på väg?',
-        destination: activeQ.destination || activeQ.correctAnswer || activeQ.landmarkName || preset.destination,
-        acceptedAnswers: activeQ.acceptedAnswers || preset.acceptedAnswers,
-        youtubeUrl: activeQ.youtubeUrl || preset.youtubeUrl,
-        videoStartTime: activeQ.videoStartTime !== undefined ? Number(activeQ.videoStartTime) : preset.videoStartTime,
+        question: activeQ.question && !activeQ.question.startsWith('New ') ? activeQ.question : 'Where are we heading? / Vart är vi på väg?',
+        destination: activeQ.destination || '',
+        acceptedAnswers: activeQ.acceptedAnswers || '',
+        youtubeUrl: activeQ.youtubeUrl || '',
+        videoStartTime: activeQ.videoStartTime !== undefined ? Number(activeQ.videoStartTime) : 0,
         duration: activeQ.duration || 90,
-        clues: Array.isArray(activeQ.clues) && activeQ.clues.length === 5 ? activeQ.clues : JSON.parse(JSON.stringify(preset.clues)),
+        clues: Array.isArray(activeQ.clues) && activeQ.clues.length === 5 ? activeQ.clues : defaultClues,
         points: 10,
         timeLimit: 90
       };
@@ -977,7 +995,7 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
               id: q.id || idx + 1,
               type: 'free_input',
               question: q.question || `Question ${idx + 1}`,
-              correctAnswer: q.correctAnswer || 'Spider-Man',
+              correctAnswer: q.correctAnswer || '',
               acceptedAnswers: q.acceptedAnswers || '',
               imageUrl: q.imageUrl || '',
               points: typeof q.points === 'number' && !isNaN(q.points)
@@ -992,18 +1010,23 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
           }
 
           if (q.type === 'pa_sparet') {
-            const fallbackPreset = PA_SPARET_PRESETS[0];
             return {
               ...q,
               id: q.id || idx + 1,
               type: 'pa_sparet',
               question: q.question || 'Where are we heading? / Vart är vi på väg?',
-              destination: q.destination || q.correctAnswer || fallbackPreset.destination,
-              acceptedAnswers: q.acceptedAnswers || fallbackPreset.acceptedAnswers,
-              youtubeUrl: q.youtubeUrl || fallbackPreset.youtubeUrl,
-              videoStartTime: q.videoStartTime !== undefined && !isNaN(Number(q.videoStartTime)) ? Number(q.videoStartTime) : fallbackPreset.videoStartTime,
+              destination: q.destination || q.correctAnswer || '',
+              acceptedAnswers: q.acceptedAnswers || '',
+              youtubeUrl: q.youtubeUrl || '',
+              videoStartTime: q.videoStartTime !== undefined && !isNaN(Number(q.videoStartTime)) ? Number(q.videoStartTime) : 0,
               duration: q.duration && !isNaN(Number(q.duration)) ? Number(q.duration) : 90,
-              clues: Array.isArray(q.clues) && q.clues.length === 5 ? q.clues : fallbackPreset.clues,
+              clues: Array.isArray(q.clues) && q.clues.length === 5 ? q.clues : [
+                { tier: 10, timeSec: 0, text: '' },
+                { tier: 8, timeSec: 20, text: '' },
+                { tier: 6, timeSec: 40, text: '' },
+                { tier: 4, timeSec: 60, text: '' },
+                { tier: 2, timeSec: 80, text: '' }
+              ],
               imageUrl: q.imageUrl || '',
               points: 10,
               secretNote: q.secretNote || '',
@@ -2198,6 +2221,61 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
                   }
                   className="w-full px-4 py-3 rounded-2xl bg-slate-950 border border-slate-800 focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20 text-white text-lg sm:text-xl font-bold outline-none resize-none transition-all"
                 />
+
+                {/* Optional Question Image URL (Shown on Live Display for Multiple Choice and Free-Text) */}
+                {(activeQ.type === 'question' || activeQ.type === 'free_input') && (
+                  <div className="pt-3 border-t border-slate-800/80 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
+                        <ImageIcon className="w-3.5 h-3.5 text-purple-400" />
+                        <span>Live Display Image URL</span>
+                        <span className="text-slate-500 font-normal lowercase">(optional photo/diagram shown on big screen)</span>
+                      </label>
+                      {activeQ.imageUrl && (
+                        <button
+                          type="button"
+                          onClick={() => handleUpdateActiveQuestion('imageUrl', '')}
+                          className="text-xs text-rose-400 hover:text-rose-300 cursor-pointer font-semibold"
+                        >
+                          Remove Image
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="url"
+                        value={activeQ.imageUrl || ''}
+                        onChange={(e) => handleUpdateActiveQuestion('imageUrl', e.target.value)}
+                        placeholder="https://images.unsplash.com/... or paste image URL"
+                        className="flex-1 px-4 py-2.5 rounded-xl bg-slate-950 border border-slate-800 focus:border-purple-500 text-white text-xs outline-none font-mono"
+                      />
+                    </div>
+
+                    {activeQ.imageUrl && (
+                      <div className="flex items-center gap-3 p-2.5 rounded-xl bg-slate-950 border border-slate-800">
+                        <div className="w-20 h-14 rounded-lg overflow-hidden border border-purple-500/30 bg-black shrink-0">
+                          <img
+                            src={activeQ.imageUrl}
+                            alt="Question Visual Preview"
+                            className="w-full h-full object-cover"
+                            onError={(e) => {
+                              e.target.style.display = 'none';
+                            }}
+                          />
+                        </div>
+                        <div className="text-xs text-slate-300">
+                          <span className="text-emerald-400 font-bold block flex items-center gap-1">
+                            <span>✓ Image Connected</span>
+                          </span>
+                          <span className="text-[11px] text-slate-400">
+                            This image will be displayed prominently on the live big screen display above the answer options!
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Conditional Answer Editor: Closest-Wins Map vs Free Text vs Multiple Choice */}
@@ -2428,7 +2506,7 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
                         type="text"
                         value={activeQ.correctAnswer || ''}
                         onChange={(e) => handleUpdateActiveQuestion('correctAnswer', e.target.value)}
-                        placeholder="e.g. Spider-Man"
+                        placeholder="Enter primary correct answer..."
                         className="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-800 focus:border-cyan-500 text-white font-bold text-base outline-none transition-all font-sans"
                       />
                       <p className="text-[11px] text-slate-500 mt-1">
@@ -2445,7 +2523,7 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
                         type="text"
                         value={activeQ.acceptedAnswers || ''}
                         onChange={(e) => handleUpdateActiveQuestion('acceptedAnswers', e.target.value)}
-                        placeholder="e.g. Spiderman, Peter Parker, Spidey"
+                        placeholder="e.g. alternative spellings, acronyms (optional)"
                         className="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-800 focus:border-cyan-500 text-white font-semibold text-sm outline-none transition-all font-sans"
                       />
                       <p className="text-[11px] text-slate-500 mt-1">
@@ -2468,10 +2546,7 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
 
                     <p className="text-xs text-slate-400 leading-relaxed">
                       Players don't have to worry about exact hyphens or small spelling mistakes! For example, if the answer is{' '}
-                      <strong className="text-white">"{activeQ.correctAnswer || 'Spider-Man'}"</strong>, the scoring engine will also automatically accept{' '}
-                      <span className="text-cyan-300 font-mono font-bold">"spiderman"</span>,{' '}
-                      <span className="text-cyan-300 font-mono font-bold">"spyderman"</span>, or{' '}
-                      <span className="text-cyan-300 font-mono font-bold">"spider-man!"</span>!
+                      <strong className="text-white">"{activeQ.correctAnswer || 'Answer'}"</strong>, the scoring engine will automatically accept minor typos, spacing, and casing differences.
                     </p>
 
                     <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 pt-1">
@@ -2574,7 +2649,7 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
                         type="text"
                         value={activeQ.destination || ''}
                         onChange={(e) => handleUpdateActiveQuestion('destination', e.target.value)}
-                        placeholder="e.g. Gothenburg"
+                        placeholder="Enter destination city..."
                         className="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-800 focus:border-amber-500 text-white font-bold text-base outline-none transition-all"
                       />
                       <p className="text-[11px] text-slate-500 mt-1">
@@ -2590,7 +2665,7 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
                         type="text"
                         value={activeQ.acceptedAnswers || ''}
                         onChange={(e) => handleUpdateActiveQuestion('acceptedAnswers', e.target.value)}
-                        placeholder="e.g. Gothenburg, Göteborg, Goteborg"
+                        placeholder="Alternative accepted spellings (optional)..."
                         className="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-800 focus:border-amber-500 text-white font-semibold text-sm outline-none transition-all"
                       />
                       <p className="text-[11px] text-slate-500 mt-1">

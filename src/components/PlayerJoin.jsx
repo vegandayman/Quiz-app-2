@@ -1010,7 +1010,7 @@ export default function PlayerJoin({ initialRoomCode = '', onOpenHost }) {
                         autoFocus
                         value={playerTextInput}
                         onChange={(e) => setPlayerTextInput(e.target.value)}
-                        placeholder="e.g. Spider-Man..."
+                        placeholder="Type your answer here..."
                         className="w-full bg-slate-950 border border-slate-700 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 rounded-2xl px-4 py-3.5 text-base sm:text-lg font-bold text-white placeholder-slate-600 outline-none transition-all"
                       />
 
@@ -1124,7 +1124,7 @@ export default function PlayerJoin({ initialRoomCode = '', onOpenHost }) {
                               autoFocus
                               value={playerTextInput}
                               onChange={(e) => setPlayerTextInput(e.target.value)}
-                              placeholder="e.g. Gothenburg / Göteborg..."
+                              placeholder="Enter destination city..."
                               className="w-full bg-slate-900 border border-slate-700 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 rounded-2xl px-4 py-3.5 text-base sm:text-lg font-bold text-white placeholder-slate-500 outline-none transition-all shadow-inner"
                             />
                           </div>

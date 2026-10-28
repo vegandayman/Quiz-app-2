@@ -1029,10 +1029,23 @@ export default function LiveDisplay({ roomCode: initialRoomCode = '', onSwitchTo
           ) : isFreeInput ? (
             !isReveal ? (
               /* Active Free-Text Question Stage */
-              <div className="w-full bg-gradient-to-b from-slate-900 via-cyan-950/20 to-slate-900 border-2 border-cyan-500/40 rounded-3xl p-8 sm:p-12 text-center shadow-2xl relative overflow-hidden">
-                <div className="w-16 h-16 mx-auto rounded-2xl bg-cyan-500/20 border border-cyan-500/40 flex items-center justify-center text-cyan-300 mb-4 shadow-lg shadow-cyan-500/20">
-                  <KeyboardIcon className="w-8 h-8 animate-pulse" />
-                </div>
+              <div className="w-full bg-gradient-to-b from-slate-900 via-cyan-950/20 to-slate-900 border-2 border-cyan-500/40 rounded-3xl p-6 sm:p-10 text-center shadow-2xl relative overflow-hidden flex flex-col items-center">
+                {currentQuestion?.imageUrl ? (
+                  <div className="relative max-w-2xl w-full mx-auto rounded-2xl overflow-hidden border-2 border-cyan-500/40 shadow-2xl shadow-cyan-950/60 mb-5 bg-slate-950">
+                    <img
+                      src={currentQuestion.imageUrl}
+                      alt={currentQuestion.question || 'Question Visual'}
+                      className="w-full max-h-[38vh] sm:max-h-[44vh] object-contain sm:object-cover object-center bg-black/40"
+                      onError={(e) => {
+                        e.target.style.display = 'none';
+                      }}
+                    />
+                  </div>
+                ) : (
+                  <div className="w-16 h-16 mx-auto rounded-2xl bg-cyan-500/20 border border-cyan-500/40 flex items-center justify-center text-cyan-300 mb-4 shadow-lg shadow-cyan-500/20">
+                    <KeyboardIcon className="w-8 h-8 animate-pulse" />
+                  </div>
+                )}
                 <h3 className="text-2xl sm:text-3xl font-black text-white mb-2">
                   Type Your Answer on Your Phone!
                 </h3>
@@ -1050,7 +1063,19 @@ export default function LiveDisplay({ roomCode: initialRoomCode = '', onSwitchTo
               </div>
             ) : (
               /* Revealed Free-Text Question Stage */
-              <div className="w-full space-y-6">
+              <div className="w-full space-y-6 flex flex-col items-center">
+                {currentQuestion?.imageUrl && (
+                  <div className="relative max-w-lg w-full mx-auto rounded-2xl overflow-hidden border border-cyan-500/40 shadow-xl bg-slate-950">
+                    <img
+                      src={currentQuestion.imageUrl}
+                      alt={currentQuestion.question || 'Question Visual'}
+                      className="w-full max-h-[30vh] object-contain sm:object-cover object-center bg-black/40"
+                      onError={(e) => {
+                        e.target.style.display = 'none';
+                      }}
+                    />
+                  </div>
+                )}
                 {/* Correct Answer Hero Card */}
                 <div className="w-full bg-gradient-to-b from-emerald-950/50 to-slate-900 border-2 border-emerald-500 rounded-3xl p-8 sm:p-10 text-center shadow-2xl shadow-emerald-950/40 relative overflow-hidden">
                   <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-xs font-black uppercase tracking-wider mb-3">
@@ -1199,7 +1224,22 @@ export default function LiveDisplay({ roomCode: initialRoomCode = '', onSwitchTo
               </div>
             )
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 w-full">
+            <div className="w-full space-y-6 flex flex-col items-center">
+              {currentQuestion?.imageUrl && (
+                <div className="relative max-w-2xl w-full mx-auto rounded-3xl overflow-hidden border-2 border-purple-500/40 shadow-2xl shadow-purple-950/60 bg-slate-950">
+                  <img
+                    src={currentQuestion.imageUrl}
+                    alt={currentQuestion.question || 'Question Visual'}
+                    className="w-full max-h-[38vh] sm:max-h-[44vh] object-contain sm:object-cover object-center bg-black/40"
+                    onError={(e) => {
+                      e.target.style.display = 'none';
+                    }}
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-t from-slate-950/40 via-transparent to-transparent pointer-events-none" />
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 w-full">
               {currentQuestion?.options?.map((option, idx) => {
                 const shape = shapes[idx % shapes.length];
                 const isCorrectAnswer = isReveal && idx === currentQuestion.correctIndex;
@@ -1242,7 +1282,8 @@ export default function LiveDisplay({ roomCode: initialRoomCode = '', onSwitchTo
                 );
               })}
             </div>
-          )}
+          </div>
+        )}
         </main>
 
         <footer className="text-center text-slate-500 text-xs">

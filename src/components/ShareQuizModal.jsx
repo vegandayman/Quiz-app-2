@@ -94,8 +94,17 @@ export default function ShareQuizModal({
   isOpen,
   onClose,
   currentQuiz = null, // { title, questions, showScoreboardAfterQuestion }
+  currentQuestions = null,
+  quizTitle = '',
+  showScoreboardAfterQuestion = true,
   onLoadQuiz = null   // callback(quizData) when user loads a quiz
 }) {
+  const effectiveQuiz = currentQuiz || (currentQuestions ? {
+    title: quizTitle || 'My Custom Quiz',
+    questions: currentQuestions,
+    showScoreboardAfterQuestion: Boolean(showScoreboardAfterQuestion)
+  } : null);
+
   const [activeTab, setActiveTab] = useState('share'); // 'share' | 'load'
   const [isSaving, setIsSaving] = useState(false);
   const [shareData, setShareData] = useState(null); // { quizId, shareUrl, title }
@@ -118,8 +127,8 @@ export default function ShareQuizModal({
       setErrorMessage('');
       setStatusMessage('');
 
-      // If we have a currentQuiz and activeTab is share, save to cloud to generate link
-      if (currentQuiz && currentQuiz.questions?.length > 0) {
+      // If we have an effectiveQuiz and activeTab is share, save to cloud to generate link
+      if (effectiveQuiz && effectiveQuiz.questions?.length > 0) {
         handleGenerateShareLink();
       } else {
         setActiveTab('load');
@@ -128,16 +137,16 @@ export default function ShareQuizModal({
   }, [isOpen]);
 
   const handleGenerateShareLink = async () => {
-    if (!currentQuiz || !currentQuiz.questions || currentQuiz.questions.length === 0) {
+    if (!effectiveQuiz || !effectiveQuiz.questions || effectiveQuiz.questions.length === 0) {
       return;
     }
     setIsSaving(true);
     setErrorMessage('');
     try {
       const res = await saveQuizToCloud({
-        title: currentQuiz.title || 'My Custom Quiz',
-        questions: currentQuiz.questions,
-        showScoreboardAfterQuestion: currentQuiz.showScoreboardAfterQuestion
+        title: effectiveQuiz.title || 'My Custom Quiz',
+        questions: effectiveQuiz.questions,
+        showScoreboardAfterQuestion: effectiveQuiz.showScoreboardAfterQuestion
       });
       setShareData(res);
       setSavedLocalQuizzes(getSavedLocalQuizzes());
@@ -149,7 +158,7 @@ export default function ShareQuizModal({
       setShareData({
         quizId: fallbackCode,
         shareUrl: buildHostShareUrl(fallbackCode),
-        title: currentQuiz.title || 'My Custom Quiz'
+        title: effectiveQuiz.title || 'My Custom Quiz'
       });
       setIsSaving(false);
     }
@@ -251,7 +260,7 @@ export default function ShareQuizModal({
           <button
             type="button"
             onClick={() => setActiveTab('share')}
-            disabled={!currentQuiz || !currentQuiz.questions?.length}
+            disabled={!effectiveQuiz || !effectiveQuiz.questions?.length}
             className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer ${
               activeTab === 'share'
                 ? 'bg-purple-600 text-white shadow-md shadow-purple-600/30'
@@ -299,7 +308,7 @@ export default function ShareQuizModal({
                   Quiz Ready to Share
                 </span>
                 <h4 className="text-xl font-black text-white">
-                  "{shareData?.title || currentQuiz?.title || 'My Custom Quiz'}"
+                  "{shareData?.title || effectiveQuiz?.title || 'My Custom Quiz'}"
                 </h4>
                 <p className="text-xs text-slate-300 leading-relaxed">
                   Anyone who clicks your link will instantly open QuizPulse in <strong>Host Mode</strong> with your quiz preloaded and a fresh game PIN!
