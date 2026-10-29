@@ -29,6 +29,9 @@
         "createdAt": {
           ".validate": "newData.isNumber()"
         },
+        "lastActivity": {
+          ".validate": "newData.isNumber()"
+        },
         "timeLimit": {
           ".validate": "newData.isNumber() && newData.val() >= 0"
         },

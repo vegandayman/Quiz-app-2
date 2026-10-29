@@ -121,6 +121,7 @@ export default function App() {
           />
         ) : (
           <HostConsole
+            initialRoomCode={activePin}
             initialQuizId={activeQuizId}
             initialQuizData={activeQuizData}
             onRoomCodeReady={(pin: string) => setActivePin(pin)}

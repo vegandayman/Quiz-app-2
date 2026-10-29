@@ -341,6 +341,9 @@ export default function PlayerJoin({ initialRoomCode = '', onOpenHost }) {
         joinedAt: Date.now()
       }));
 
+      // Update room last activity timestamp
+      update(roomRef, { lastActivity: Date.now() }).catch(() => {});
+
       setCurrentPlayerId(generatedPlayerId);
       setJoinedRoomCode(trimmedCode);
       setIsJoined(true);

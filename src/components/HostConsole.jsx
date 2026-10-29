@@ -14,6 +14,10 @@ import {
   saveActiveCustomQuizToStorage,
   getActiveCustomQuizFromStorage
 } from '../utils/quizNormalizer.js';
+import {
+  findAvailableOrStaleRoomCode,
+  initializeRoomInFirebase
+} from '../utils/roomManager.js';
 
 // Clean inline SVGs (zero external dependencies)
 const ShareIcon = ({ className = 'w-4 h-4' }) => (
@@ -290,11 +294,19 @@ export default function HostConsole({
   onRoomCodeReady,
   onLockConsole,
   onSwitchToPlayer,
+  initialRoomCode = '',
   initialQuizId = '',
   initialQuizData = ''
 }) {
   const initialCustomQuiz = getActiveCustomQuizFromStorage();
-  const [roomCode, setRoomCode] = useState(() => Math.floor(1000 + Math.random() * 9000).toString());
+  const [roomCode, setRoomCode] = useState(() => {
+    if (initialRoomCode && /^[0-9]{4}$/.test(initialRoomCode)) {
+      return initialRoomCode;
+    }
+    return '';
+  });
+  const [isAllocatingRoom, setIsAllocatingRoom] = useState(() => !Boolean(initialRoomCode && /^[0-9]{4}$/.test(initialRoomCode)));
+  const [isRecycledRoom, setIsRecycledRoom] = useState(false);
   const [roomData, setRoomData] = useState(null);
   const [currentQIndex, setCurrentQIndex] = useState(0);
   const [activeQuestions, setActiveQuestions] = useState(() => {
@@ -368,6 +380,27 @@ export default function HostConsole({
     };
   }, [initialQuizId, initialQuizData, roomCode]);
 
+  // On mount, allocate an available or stale (>24h) 4-digit room code
+  useEffect(() => {
+    if (roomCode) return;
+    let isMounted = true;
+    setIsAllocatingRoom(true);
+
+    findAvailableOrStaleRoomCode(db).then(({ roomCode: allocatedCode, isRecycled }) => {
+      if (!isMounted) return;
+      setRoomCode(allocatedCode);
+      setIsRecycledRoom(isRecycled);
+      setIsAllocatingRoom(false);
+      if (onRoomCodeReady) {
+        onRoomCodeReady(allocatedCode);
+      }
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [roomCode, onRoomCodeReady]);
+
   // Notify parent of room code
   useEffect(() => {
     if (roomCode && onRoomCodeReady) {
@@ -382,14 +415,9 @@ export default function HostConsole({
     const roomRef = ref(db, `rooms/${roomCode}`);
     const cleanInitQuestions = sanitizeQuestionsForFirebase(activeQuestions, showScoreboardAfterQuestion);
 
-    update(roomRef, {
-      roomCode,
-      status: 'lobby',
-      currentQuestionIndex: 0,
-      questions: cleanInitQuestions,
-      showScoreboardAfterQuestion: Boolean(showScoreboardAfterQuestion),
-      createdAt: Date.now()
-    }).catch((err) => console.error('Error initializing room:', err));
+    // Initialize or recycle room with clean state (removes stale ghost players if recycled)
+    initializeRoomInFirebase(db, roomCode, cleanInitQuestions, showScoreboardAfterQuestion)
+      .catch((err) => console.error('Error initializing room:', err));
 
     const unsubscribe = onValue(roomRef, (snapshot) => {
       const data = snapshot.val();
@@ -459,7 +487,8 @@ export default function HostConsole({
           questions: clean,
           showScoreboardAfterQuestion: scoreboardSetting,
           currentQuestionIndex: 0,
-          status: 'lobby'
+          status: 'lobby',
+          lastActivity: Date.now()
         });
       } catch (err) {
         console.error('Failed to sync applied quiz to Firebase room:', err);
@@ -474,25 +503,33 @@ export default function HostConsole({
     if (roomCode) {
       const roomRef = ref(db, `rooms/${roomCode}`);
       await update(roomRef, {
-        showScoreboardAfterQuestion: nextVal
+        showScoreboardAfterQuestion: nextVal,
+        lastActivity: Date.now()
       });
     }
   };
 
-  // Reset Room PIN
+  // Reset Room PIN with collision checking & stale room recycling
   const handleResetRoomNumber = async () => {
     if (confirm('Generate a new Room PIN? Current players will be notified to join the new room.')) {
       if (roomCode) {
         try {
-          await update(ref(db, `rooms/${roomCode}`), { status: 'closed' });
+          // Mark room closed with timestamp (no active deletion on exit/reset, as requested)
+          await update(ref(db, `rooms/${roomCode}`), {
+            status: 'closed',
+            lastActivity: Date.now()
+          });
         } catch (e) {
           console.error(e);
         }
       }
 
-      const newCode = Math.floor(1000 + Math.random() * 9000).toString();
+      setIsAllocatingRoom(true);
+      const { roomCode: newCode, isRecycled } = await findAvailableOrStaleRoomCode(db);
       setRoomCode(newCode);
+      setIsRecycledRoom(isRecycled);
       setCurrentQIndex(0);
+      setIsAllocatingRoom(false);
       if (onRoomCodeReady) {
         onRoomCodeReady(newCode);
       }
@@ -648,7 +685,8 @@ export default function HostConsole({
       showScoreboardAfterQuestion: Boolean(showScoreboardAfterQuestion),
       revealStage: 1,
       questionStartTime: Date.now(),
-      timeLimit: firstItem?.timeLimit || 60
+      timeLimit: firstItem?.timeLimit || 60,
+      lastActivity: Date.now()
     });
   };
 
@@ -661,7 +699,8 @@ export default function HostConsole({
       const pts = activeQuestion.points !== undefined && activeQuestion.points !== '' ? Math.max(0, Number(activeQuestion.points)) : 1;
       const updates = {
         status: 'reveal',
-        revealStage: 1
+        revealStage: 1,
+        lastActivity: Date.now()
       };
 
       rankedMapPlayers.forEach((p) => {
@@ -682,14 +721,18 @@ export default function HostConsole({
 
     await update(roomRef, {
       status: 'reveal',
-      revealStage: 1
+      revealStage: 1,
+      lastActivity: Date.now()
     });
   };
 
   // Closest-Wins 4-Stage Stepper Controllers
   const handleSetRevealStage = async (stage) => {
     const roomRef = ref(db, `rooms/${roomCode}`);
-    await update(roomRef, { revealStage: stage });
+    await update(roomRef, {
+      revealStage: stage,
+      lastActivity: Date.now()
+    });
   };
 
   const handleNextRevealStage = async () => {
@@ -703,7 +746,8 @@ export default function HostConsole({
   const handleShowLeaderboard = async () => {
     const roomRef = ref(db, `rooms/${roomCode}`);
     await update(roomRef, {
-      status: 'leaderboard'
+      status: 'leaderboard',
+      lastActivity: Date.now()
     });
   };
 
@@ -722,7 +766,8 @@ export default function HostConsole({
           status: 'finished',
           currentQuestionIndex: nextIndex,
           revealStage: 1,
-          tieBreakRevealed: false
+          tieBreakRevealed: false,
+          lastActivity: Date.now()
         });
         return;
       }
@@ -732,13 +777,15 @@ export default function HostConsole({
         currentQuestionIndex: nextIndex,
         revealStage: 1,
         questionStartTime: Date.now(),
-        timeLimit: nextItem?.timeLimit || 60
+        timeLimit: nextItem?.timeLimit || 60,
+        lastActivity: Date.now()
       });
     } else {
       await update(roomRef, {
         status: 'finished',
         revealStage: 1,
-        tieBreakRevealed: false
+        tieBreakRevealed: false,
+        lastActivity: Date.now()
       });
     }
   };
@@ -758,7 +805,8 @@ export default function HostConsole({
       ...resetPlayersUpdates,
       status: 'lobby',
       currentQuestionIndex: 0,
-      tieBreakRevealed: false
+      tieBreakRevealed: false,
+      lastActivity: Date.now()
     });
   };
 
@@ -816,17 +864,28 @@ export default function HostConsole({
             <span>Scoreboard: <strong className={showScoreboardAfterQuestion ? 'text-amber-300' : 'text-slate-400'}>{showScoreboardAfterQuestion ? 'ON' : 'OFF'}</strong></span>
           </button>
 
-          <div className="px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-xs font-mono">
-            PIN: <span className="text-purple-400 font-bold">{roomCode}</span>
+          <div className="px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-xs font-mono flex items-center gap-1.5">
+            <span>PIN:</span>
+            {isAllocatingRoom ? (
+              <span className="text-amber-400 font-bold animate-pulse">Checking...</span>
+            ) : (
+              <span className="text-purple-400 font-bold">{roomCode}</span>
+            )}
+            {isRecycledRoom && (
+              <span className="text-[10px] text-emerald-400/80 bg-emerald-500/10 px-1.5 py-0.5 rounded font-sans" title="PIN recycled from an inactive room (>24h old)">
+                recycled
+              </span>
+            )}
           </div>
 
           <button
             type="button"
             onClick={handleResetRoomNumber}
+            disabled={isAllocatingRoom}
             title="Generate a new Room PIN"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 text-xs font-semibold cursor-pointer transition-all"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 text-xs font-semibold cursor-pointer transition-all disabled:opacity-50"
           >
-            <RefreshCwIcon className="w-3.5 h-3.5 text-amber-400" />
+            <RefreshCwIcon className={`w-3.5 h-3.5 text-amber-400 ${isAllocatingRoom ? 'animate-spin' : ''}`} />
             <span>New PIN</span>
           </button>
 
