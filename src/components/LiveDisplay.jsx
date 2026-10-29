@@ -10,6 +10,7 @@ import {
 } from '../utils/geoDistance.js';
 import { extractYouTubeId, playTrainWhistleSound, playClueChimeSound } from '../data/paSparetPresets.js';
 import { rankPlayersWithTieBreak, detectTopTie } from '../utils/tieBreaker.js';
+import { normalizeQuestionsArray } from '../utils/quizNormalizer.js';
 
 // Clean inline SVGs (zero external dependencies)
 const ClockIcon = ({ className = 'w-5 h-5' }) => (
@@ -231,7 +232,8 @@ export default function LiveDisplay({ roomCode: initialRoomCode = '', onSwitchTo
   // Sound effects for På Spåret
   useEffect(() => {
     if (roomData?.status !== 'question') return;
-    const currentQ = roomData?.questions?.[roomData?.currentQuestionIndex || 0];
+    const slides = normalizeQuestionsArray(roomData?.questions);
+    const currentQ = slides[roomData?.currentQuestionIndex || 0];
     if (currentQ?.type !== 'pa_sparet') return;
 
     // Train whistle sound at round start
@@ -402,8 +404,9 @@ export default function LiveDisplay({ roomCode: initialRoomCode = '', onSwitchTo
     answers: typeof p === 'object' ? p.answers || {} : {}
   }));
 
+  const allSlides = normalizeQuestionsArray(roomData?.questions);
   const currentQIndex = roomData?.currentQuestionIndex || 0;
-  const currentQuestion = roomData?.questions?.[currentQIndex] || null;
+  const currentQuestion = allSlides[currentQIndex] || null;
 
   // Answers tally per option and free-text submissions
   const choiceTally = [0, 0, 0, 0];
@@ -506,9 +509,8 @@ export default function LiveDisplay({ roomCode: initialRoomCode = '', onSwitchTo
     }
   });
 
-  const allSlides = roomData?.questions || [];
-  const totalQuestions = allSlides.filter(q => q.type !== 'splash' && q.type !== 'end').length;
-  const questionsPassed = allSlides.slice(0, currentQIndex + 1).filter(q => q.type !== 'splash' && q.type !== 'end').length;
+  const totalQuestions = allSlides.filter(q => q && q.type !== 'splash' && q.type !== 'end').length;
+  const questionsPassed = allSlides.slice(0, currentQIndex + 1).filter(q => q && q.type !== 'splash' && q.type !== 'end').length;
 
   // ----------------------------------------------------
   // 1. LOBBY VIEW

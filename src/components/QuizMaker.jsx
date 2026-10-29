@@ -5,6 +5,7 @@ import { PA_SPARET_PRESETS, extractYouTubeId } from '../data/paSparetPresets.js'
 import { DEFAULT_INTRO_RULES_SPLASH, DEFAULT_RULES_LIST } from '../data/introSplashDefaults.js';
 import WorldMap from './WorldMap.jsx';
 import ShareQuizModal from './ShareQuizModal.jsx';
+import { sanitizeQuestionsForFirebase, normalizeQuestionsArray } from '../utils/quizNormalizer.js';
 
 // Clean inline SVGs (zero external dependencies)
 const ShareIcon = ({ className = 'w-4 h-4' }) => (
@@ -1056,14 +1057,11 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
           };
         });
 
-        // Ensure the non-removable end screen is always placed at the end
-        const nonEndSlides = validated.filter((q) => q.type !== 'end');
-        const existingEnd = validated.find((q) => q.type === 'end') || DEFAULT_END_SCREEN;
-        const finalSlides = [...nonEndSlides, existingEnd];
+        const cleanFinalSlides = sanitizeQuestionsForFirebase(loadedQuestions, defaultScoreboardVal);
 
-        setQuestions(finalSlides);
+        setQuestions(cleanFinalSlides);
         setActiveIdx(0);
-        showNotification(`Successfully loaded ${finalSlides.length} slides from JSON!`);
+        showNotification(`Successfully loaded ${cleanFinalSlides.length} slides from JSON!`);
       } catch (err) {
         console.error('Failed to parse quiz JSON:', err);
         alert('Could not parse JSON file. Please ensure it is valid JSON.');
@@ -1075,8 +1073,9 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
 
   // Save to live game
   const handleSaveToGame = () => {
+    const cleanQuestions = sanitizeQuestionsForFirebase(questions, showScoreboardAfterQuestion);
     if (onSaveQuiz) {
-      onSaveQuiz(questions, quizTitle, showScoreboardAfterQuestion);
+      onSaveQuiz(cleanQuestions, quizTitle, showScoreboardAfterQuestion);
     }
     showNotification('Quiz and settings applied to live room!');
     if (onClose) {

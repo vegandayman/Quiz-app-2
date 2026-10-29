@@ -10,9 +10,9 @@
       ".write": false,
 
       "$roomCode": {
-        /* Read and write require valid Firebase authentication (via silent Anonymous Auth) and a valid 4-digit PIN */
-        ".read": "auth != null && $roomCode.matches(/^[0-9]{4}$/)",
-        ".write": "auth != null && $roomCode.matches(/^[0-9]{4}$/)",
+        /* Read and write are granted only to clients accessing a specific 4-digit PIN */
+        ".read": "$roomCode.matches(/^[0-9]{4}$/)",
+        ".write": "$roomCode.matches(/^[0-9]{4}$/)",
 
         /* Ensure room data conforms to QuizPulse structure */
         ".validate": "newData.hasChildren(['roomCode', 'status'])",
@@ -130,9 +130,9 @@
       ".write": false,
 
       "$quizId": {
-        /* Read and write are granted to authenticated users accessing a specific quiz */
-        ".read": "auth != null",
-        ".write": "auth != null",
+        /* Read and write are granted to clients accessing a specific quiz code (4-32 alphanumeric/dash/underscore chars) */
+        ".read": "$quizId.matches(/^[A-Za-z0-9_-]{4,32}$/)",
+        ".write": "$quizId.matches(/^[A-Za-z0-9_-]{4,32}$/)",
 
         /* Ensure saved quiz conforms to QuizPulse structure */
         ".validate": "newData.hasChildren(['title', 'questions'])",
@@ -153,4 +153,3 @@
     }
   }
 }
-

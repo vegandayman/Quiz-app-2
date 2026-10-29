@@ -5,6 +5,7 @@ import { checkFreeInputAnswer } from '../utils/answerMatcher.js';
 import WorldMap from './WorldMap.jsx';
 import { playEmergencyBrakeSound } from '../data/paSparetPresets.js';
 import { rankPlayersWithTieBreak, detectTopTie } from '../utils/tieBreaker.js';
+import { normalizeQuestionsArray } from '../utils/quizNormalizer.js';
 
 // Clean inline SVGs (zero external dependencies)
 const TrainIcon = ({ className = 'w-6 h-6' }) => (
@@ -441,7 +442,7 @@ export default function PlayerJoin({ initialRoomCode = '', onOpenHost }) {
     if (myAnswer !== null || !roomData || timeLeft <= 0) return;
 
     const currentQIndex = roomData.currentQuestionIndex || 0;
-    const currentQ = roomData.questions?.[currentQIndex];
+    const currentQ = normalizeQuestionsArray(roomData.questions)[currentQIndex];
     const isCorrect = choiceIndex === currentQ?.correctIndex;
 
     // Use custom question points (defaults to 1 if not specified in editor)
@@ -480,7 +481,7 @@ export default function PlayerJoin({ initialRoomCode = '', onOpenHost }) {
 
     setIsSubmittingText(true);
     const currentQIndex = roomData.currentQuestionIndex || 0;
-    const currentQ = roomData.questions?.[currentQIndex];
+    const currentQ = normalizeQuestionsArray(roomData.questions)[currentQIndex];
 
     const matchResult = checkFreeInputAnswer(
       trimmed,
@@ -550,7 +551,7 @@ export default function PlayerJoin({ initialRoomCode = '', onOpenHost }) {
 
     setIsSubmittingText(true);
     const currentQIndex = roomData.currentQuestionIndex || 0;
-    const currentQ = roomData.questions?.[currentQIndex];
+    const currentQ = normalizeQuestionsArray(roomData.questions)[currentQIndex];
 
     const startTime = roomData.questionStartTime || Date.now();
     const elapsed = Math.max(0, Math.floor((Date.now() - startTime) / 1000));
@@ -594,8 +595,9 @@ export default function PlayerJoin({ initialRoomCode = '', onOpenHost }) {
   };
 
   const status = roomData?.status || 'lobby';
+  const allSlides = normalizeQuestionsArray(roomData?.questions);
   const currentQIndex = roomData?.currentQuestionIndex || 0;
-  const currentQuestion = roomData?.questions?.[currentQIndex];
+  const currentQuestion = allSlides[currentQIndex] || null;
   const myPlayerObj = roomData?.players?.[currentPlayerId];
   const lastAnswerObj = myPlayerObj?.answers?.[currentQIndex];
 
@@ -620,9 +622,8 @@ export default function PlayerJoin({ initialRoomCode = '', onOpenHost }) {
     nextPaSparetDropSec = 20 - elapsedSinceQuestionStart;
   }
 
-  const allSlides = roomData?.questions || [];
-  const totalQuestions = allSlides.filter((q) => q.type !== 'splash' && q.type !== 'end').length;
-  const questionsPassed = allSlides.slice(0, currentQIndex + 1).filter((q) => q.type !== 'splash' && q.type !== 'end').length;
+  const totalQuestions = allSlides.filter((q) => q && q.type !== 'splash' && q.type !== 'end').length;
+  const questionsPassed = allSlides.slice(0, currentQIndex + 1).filter((q) => q && q.type !== 'splash' && q.type !== 'end').length;
 
   // Compute rankings (with speed tie-breaker)
   const rawPlayers = roomData?.players || {};
@@ -1190,18 +1191,34 @@ export default function PlayerJoin({ initialRoomCode = '', onOpenHost }) {
               /* Multiple-Choice Question Mode */
               myAnswer === null ? (
                 timeLeft > 0 ? (
-                  <div className="grid grid-cols-2 gap-3 w-full h-80 sm:h-96">
-                    {answerButtons.map((btn, idx) => (
-                      <button
-                        key={idx}
-                        type="button"
-                        onClick={() => handleSelectAnswer(idx)}
-                        className={`${btn.bg} ${btn.border} border-2 rounded-2xl flex flex-col items-center justify-center gap-2 text-white shadow-xl cursor-pointer transition-transform active:scale-95`}
-                      >
-                        <span className="text-5xl font-black">{btn.symbol}</span>
-                        <span className="text-xs font-bold uppercase opacity-80">{btn.label}</span>
-                      </button>
-                    ))}
+                  <div className="w-full space-y-3">
+                    {currentQuestion?.question && (
+                      <div className="w-full bg-slate-900/90 border border-slate-800 rounded-2xl p-4 text-center shadow-lg">
+                        <h3 className="text-base sm:text-lg font-bold text-white leading-snug">
+                          {currentQuestion.question}
+                        </h3>
+                      </div>
+                    )}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full">
+                      {answerButtons.map((btn, idx) => {
+                        const optionText = currentQuestion?.options?.[idx] || `Option ${idx + 1}`;
+                        return (
+                          <button
+                            key={idx}
+                            type="button"
+                            onClick={() => handleSelectAnswer(idx)}
+                            className={`${btn.bg} ${btn.border} border-2 rounded-2xl p-4 sm:p-5 flex items-center gap-3.5 text-white shadow-xl cursor-pointer transition-transform active:scale-[0.98] min-h-[72px] sm:min-h-[84px] text-left`}
+                          >
+                            <span className="w-9 h-9 rounded-xl bg-black/25 flex items-center justify-center text-xl font-black shrink-0 shadow-inner">
+                              {btn.symbol}
+                            </span>
+                            <span className="text-base sm:text-lg font-bold leading-snug flex-1">
+                              {optionText}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
                 ) : (
                   <div className="py-12 px-6 rounded-3xl bg-slate-900 border border-slate-800 text-center w-full shadow-2xl">
@@ -1215,16 +1232,22 @@ export default function PlayerJoin({ initialRoomCode = '', onOpenHost }) {
                   </div>
                 )
               ) : (
-                <div className="py-12 px-6 rounded-3xl bg-slate-900 border border-slate-800 text-center w-full shadow-2xl">
-                  <div className="w-16 h-16 mx-auto rounded-full bg-purple-600/20 border border-purple-500/40 flex items-center justify-center text-purple-400 mb-4">
+                <div className="py-10 px-6 rounded-3xl bg-slate-900 border border-purple-500/40 text-center w-full shadow-2xl space-y-4">
+                  <div className="w-16 h-16 mx-auto rounded-full bg-purple-600/20 border border-purple-500/40 flex items-center justify-center text-purple-400 mb-2">
                     <CheckCircleIcon className="w-8 h-8" />
                   </div>
                   <h3 className="text-xl font-black text-white">Answer Locked In!</h3>
-                  <p className="text-xs text-slate-300 mt-1">
-                    You selected <strong className="text-purple-300">{answerButtons[myAnswer]?.symbol} {answerButtons[myAnswer]?.label}</strong>
-                  </p>
-                  <p className="text-xs text-slate-500 mt-3">
-                    Look up at the big screen for results...
+                  <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 text-center space-y-1">
+                    <span className="text-[11px] text-slate-400 uppercase font-bold block">You selected:</span>
+                    <div className="inline-flex items-center gap-2 text-white">
+                      <span className="text-purple-400 font-bold">{answerButtons[myAnswer]?.symbol}</span>
+                      <strong className="text-purple-200 text-lg font-bold">
+                        {currentQuestion?.options?.[myAnswer] || answerButtons[myAnswer]?.label}
+                      </strong>
+                    </div>
+                  </div>
+                  <p className="text-xs text-slate-400">
+                    Look up at the big screen when time expires!
                   </p>
                 </div>
               )
@@ -1376,13 +1399,20 @@ export default function PlayerJoin({ initialRoomCode = '', onOpenHost }) {
                   <p className="text-lg font-black text-emerald-400">
                     +{lastAnswerObj?.pointsAwarded ?? (currentQuestion?.points !== undefined ? currentQuestion.points : 1)} {Number(lastAnswerObj?.pointsAwarded ?? (currentQuestion?.points !== undefined ? currentQuestion.points : 1)) === 1 ? 'Point' : 'Points'}
                   </p>
-                  {isFree && (
+                  {isFree ? (
                     <div className="p-2.5 rounded-xl bg-slate-900 border border-emerald-500/30 text-xs">
                       <span className="text-slate-400 block text-[10px] uppercase font-bold">Your matched answer:</span>
                       <span className="font-mono font-bold text-emerald-300">"{lastAnswerObj?.textAnswer || myAnswer}"</span>
                       {lastAnswerObj?.reason && lastAnswerObj.reason !== 'exact' && (
                         <span className="text-[10px] text-emerald-400 block mt-1">({lastAnswerObj.reason})</span>
                       )}
+                    </div>
+                  ) : (
+                    <div className="p-2.5 rounded-xl bg-slate-900 border border-emerald-500/30 text-xs">
+                      <span className="text-slate-400 block text-[10px] uppercase font-bold">Your answer:</span>
+                      <span className="font-bold text-emerald-300 text-sm">
+                        {answerButtons[myAnswer]?.symbol} {currentQuestion?.options?.[myAnswer] || answerButtons[myAnswer]?.label}
+                      </span>
                     </div>
                   )}
                   <p className="text-xs text-slate-400 pt-1">
@@ -1405,7 +1435,22 @@ export default function PlayerJoin({ initialRoomCode = '', onOpenHost }) {
                       </div>
                     </div>
                   ) : (
-                    <p className="text-xs text-rose-300">Keep going, next question is coming!</p>
+                    <div className="space-y-2 text-xs">
+                      {myAnswer !== null && (
+                        <div className="p-2.5 rounded-xl bg-slate-900 border border-rose-500/30">
+                          <span className="text-slate-400 block text-[10px] uppercase font-bold">You selected:</span>
+                          <span className="font-bold text-rose-300 text-sm">
+                            {answerButtons[myAnswer]?.symbol} {currentQuestion?.options?.[myAnswer] || answerButtons[myAnswer]?.label}
+                          </span>
+                        </div>
+                      )}
+                      <div className="p-2.5 rounded-xl bg-slate-900 border border-emerald-500/30">
+                        <span className="text-slate-400 block text-[10px] uppercase font-bold">Correct answer:</span>
+                        <span className="font-bold text-emerald-300 text-sm">
+                          {answerButtons[currentQuestion?.correctIndex]?.symbol} {currentQuestion?.options?.[currentQuestion?.correctIndex]}
+                        </span>
+                      </div>
+                    </div>
                   )}
                   <p className="text-xs text-slate-400 pt-1">
                     Total Score: <span className="text-purple-300 font-mono font-bold">{myPlayerObj?.score || 0} pts</span>

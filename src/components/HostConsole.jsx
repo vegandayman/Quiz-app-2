@@ -8,6 +8,12 @@ import { findClosestPlayers } from '../utils/geoDistance.js';
 import { getStoredMasterPasscode, setStoredMasterPasscode } from './HostLockScreen.jsx';
 import { rankPlayersWithTieBreak, detectTopTie } from '../utils/tieBreaker.js';
 import { DEFAULT_INTRO_RULES_SPLASH } from '../data/introSplashDefaults.js';
+import {
+  sanitizeQuestionsForFirebase,
+  normalizeQuestionsArray,
+  saveActiveCustomQuizToStorage,
+  getActiveCustomQuizFromStorage
+} from '../utils/quizNormalizer.js';
 
 // Clean inline SVGs (zero external dependencies)
 const ShareIcon = ({ className = 'w-4 h-4' }) => (
@@ -279,13 +285,36 @@ const defaultQuestions = [
  * - Reveals answers on the big screen
  * - Shows live leaderboards and advances rounds
  */
-export default function HostConsole({ onOpenDisplay, onRoomCodeReady, onLockConsole, onSwitchToPlayer, initialQuizId = '' }) {
+export default function HostConsole({
+  onOpenDisplay,
+  onRoomCodeReady,
+  onLockConsole,
+  onSwitchToPlayer,
+  initialQuizId = '',
+  initialQuizData = ''
+}) {
+  const initialCustomQuiz = getActiveCustomQuizFromStorage();
   const [roomCode, setRoomCode] = useState(() => Math.floor(1000 + Math.random() * 9000).toString());
   const [roomData, setRoomData] = useState(null);
   const [currentQIndex, setCurrentQIndex] = useState(0);
-  const [activeQuestions, setActiveQuestions] = useState(defaultQuestions);
-  const [showScoreboardAfterQuestion, setShowScoreboardAfterQuestion] = useState(false);
-  const [quizTitle, setQuizTitle] = useState('My Custom Quiz');
+  const [activeQuestions, setActiveQuestions] = useState(() => {
+    if (initialCustomQuiz && initialCustomQuiz.questions?.length > 0) {
+      return initialCustomQuiz.questions;
+    }
+    return defaultQuestions;
+  });
+  const [showScoreboardAfterQuestion, setShowScoreboardAfterQuestion] = useState(() => {
+    if (initialCustomQuiz && initialCustomQuiz.showScoreboardAfterQuestion !== undefined) {
+      return Boolean(initialCustomQuiz.showScoreboardAfterQuestion);
+    }
+    return false;
+  });
+  const [quizTitle, setQuizTitle] = useState(() => {
+    if (initialCustomQuiz && initialCustomQuiz.title) {
+      return initialCustomQuiz.title;
+    }
+    return 'My Custom Quiz';
+  });
   const [isQuizMakerOpen, setIsQuizMakerOpen] = useState(false);
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [quizBanner, setQuizBanner] = useState(null);
@@ -295,32 +324,41 @@ export default function HostConsole({ onOpenDisplay, onRoomCodeReady, onLockCons
   const [newPasscodeVal, setNewPasscodeVal] = useState('');
   const [passcodeSuccessMsg, setPasscodeSuccessMsg] = useState('');
 
-  // Automatically load shared quiz if friend arrived via 1-click host invite link
+  // Automatically load shared quiz if friend arrived via 1-click host invite link (or URL quizData)
   useEffect(() => {
-    if (!initialQuizId) return;
+    if (!initialQuizId && !initialQuizData) return;
     let isMounted = true;
-    loadQuizFromCloud(initialQuizId)
+    loadQuizFromCloud(initialQuizId, initialQuizData)
       .then((data) => {
-        if (!isMounted) return;
+        if (!isMounted || !data) return;
         if (data.title) setQuizTitle(data.title);
-        if (data.showScoreboardAfterQuestion !== undefined) {
-          setShowScoreboardAfterQuestion(Boolean(data.showScoreboardAfterQuestion));
-        }
-        if (data.questions && Array.isArray(data.questions)) {
-          setActiveQuestions(data.questions);
+        const scoreboardSetting = Boolean(data.showScoreboardAfterQuestion);
+        setShowScoreboardAfterQuestion(scoreboardSetting);
+
+        if (data.questions && data.questions.length > 0) {
+          const cleanQuestions = sanitizeQuestionsForFirebase(data.questions, scoreboardSetting);
+          setActiveQuestions(cleanQuestions);
           setCurrentQIndex(0);
+
+          saveActiveCustomQuizToStorage({
+            title: data.title || 'Shared Quiz',
+            questions: cleanQuestions,
+            showScoreboardAfterQuestion: scoreboardSetting
+          });
+
           if (roomCode) {
             update(ref(db, `rooms/${roomCode}`), {
-              questions: data.questions,
-              showScoreboardAfterQuestion: Boolean(data.showScoreboardAfterQuestion),
+              questions: cleanQuestions,
+              showScoreboardAfterQuestion: scoreboardSetting,
               currentQuestionIndex: 0
             }).catch(console.error);
           }
+
+          setQuizBanner({
+            title: data.title || 'Shared Quiz',
+            count: cleanQuestions.filter((q) => q.type !== 'splash' && q.type !== 'end').length || 0
+          });
         }
-        setQuizBanner({
-          title: data.title || 'Shared Quiz',
-          count: data.questions?.filter((q) => q.type !== 'splash' && q.type !== 'end').length || 0
-        });
       })
       .catch((err) => {
         console.warn('Could not load shared quiz from URL:', err);
@@ -328,8 +366,7 @@ export default function HostConsole({ onOpenDisplay, onRoomCodeReady, onLockCons
     return () => {
       isMounted = false;
     };
-  }, [initialQuizId, roomCode]);
-
+  }, [initialQuizId, initialQuizData, roomCode]);
 
   // Notify parent of room code
   useEffect(() => {
@@ -343,23 +380,14 @@ export default function HostConsole({ onOpenDisplay, onRoomCodeReady, onLockCons
     if (!roomCode) return;
 
     const roomRef = ref(db, `rooms/${roomCode}`);
-
-    // Ensure default intro splash screen is stripped of any legacy rules cards
-    const sanitizedInitQuestions = activeQuestions.map((q) => {
-      if (q.id === 'intro-rules-splash' && q.rules) {
-        const copy = { ...q };
-        delete copy.rules;
-        return copy;
-      }
-      return q;
-    });
+    const cleanInitQuestions = sanitizeQuestionsForFirebase(activeQuestions, showScoreboardAfterQuestion);
 
     update(roomRef, {
       roomCode,
       status: 'lobby',
       currentQuestionIndex: 0,
-      questions: sanitizedInitQuestions,
-      showScoreboardAfterQuestion: false,
+      questions: cleanInitQuestions,
+      showScoreboardAfterQuestion: Boolean(showScoreboardAfterQuestion),
       createdAt: Date.now()
     }).catch((err) => console.error('Error initializing room:', err));
 
@@ -370,8 +398,11 @@ export default function HostConsole({ onOpenDisplay, onRoomCodeReady, onLockCons
         if (data.currentQuestionIndex !== undefined) {
           setCurrentQIndex(data.currentQuestionIndex);
         }
-        if (data.questions && Array.isArray(data.questions)) {
-          setActiveQuestions(data.questions);
+        if (data.questions) {
+          const normalized = normalizeQuestionsArray(data.questions);
+          if (normalized.length > 0) {
+            setActiveQuestions(normalized);
+          }
         }
         if (data.showScoreboardAfterQuestion !== undefined) {
           setShowScoreboardAfterQuestion(Boolean(data.showScoreboardAfterQuestion));
@@ -398,22 +429,41 @@ export default function HostConsole({ onOpenDisplay, onRoomCodeReady, onLockCons
     return () => clearInterval(interval);
   }, [roomData?.status, roomData?.questionStartTime, roomData?.timeLimit]);
 
-  // Save custom quiz from QuizMaker
+  // Save custom quiz from QuizMaker or Import
   const handleSaveQuiz = async (newQuestions, title, showScoreboard) => {
-    const scoreboardSetting = showScoreboard !== undefined ? showScoreboard : showScoreboardAfterQuestion;
-    setActiveQuestions(newQuestions);
+    const scoreboardSetting = showScoreboard !== undefined ? Boolean(showScoreboard) : showScoreboardAfterQuestion;
+    const clean = sanitizeQuestionsForFirebase(newQuestions, scoreboardSetting);
+    const safeTitle = (title || quizTitle || 'My Custom Quiz').trim();
+
+    setActiveQuestions(clean);
     setShowScoreboardAfterQuestion(scoreboardSetting);
-    if (title) setQuizTitle(title);
+    setQuizTitle(safeTitle);
     setCurrentQIndex(0);
+
+    // Persist in localStorage so PIN resets or reload never forgets this custom quiz
+    saveActiveCustomQuizToStorage({
+      title: safeTitle,
+      questions: clean,
+      showScoreboardAfterQuestion: scoreboardSetting
+    });
+
+    setQuizBanner({
+      title: safeTitle,
+      count: clean.filter((q) => q.type !== 'splash' && q.type !== 'end').length
+    });
 
     if (roomCode) {
       const roomRef = ref(db, `rooms/${roomCode}`);
-      await update(roomRef, {
-        questions: newQuestions,
-        showScoreboardAfterQuestion: scoreboardSetting,
-        currentQuestionIndex: 0,
-        status: 'lobby'
-      });
+      try {
+        await update(roomRef, {
+          questions: clean,
+          showScoreboardAfterQuestion: scoreboardSetting,
+          currentQuestionIndex: 0,
+          status: 'lobby'
+        });
+      } catch (err) {
+        console.error('Failed to sync applied quiz to Firebase room:', err);
+      }
     }
   };
 
@@ -586,13 +636,16 @@ export default function HostConsole({ onOpenDisplay, onRoomCodeReady, onLockCons
       });
     }
 
-    const firstItem = activeQuestions[0];
+    const cleanQuestions = sanitizeQuestionsForFirebase(activeQuestions, showScoreboardAfterQuestion);
+    const firstItem = cleanQuestions[0] || activeQuestions[0];
     const isSplash = firstItem?.type === 'splash';
 
     await update(roomRef, {
       ...resetPlayersUpdates,
       status: isSplash ? 'splash' : 'question',
       currentQuestionIndex: 0,
+      questions: cleanQuestions,
+      showScoreboardAfterQuestion: Boolean(showScoreboardAfterQuestion),
       revealStage: 1,
       questionStartTime: Date.now(),
       timeLimit: firstItem?.timeLimit || 60

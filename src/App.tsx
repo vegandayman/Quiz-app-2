@@ -22,12 +22,20 @@ export default function App() {
     return '';
   };
 
+  const getInitialQuizData = () => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      return params.get('quizData') || params.get('data') || '';
+    }
+    return '';
+  };
+
   // Determine which role this specific tab is responsible for rendering
   // Default is 'player' (Kahoot model: players land directly on join screen)
   const getInitialRole = () => {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
-      if (params.get('quizId') || params.get('quiz')) {
+      if (params.get('quizId') || params.get('quiz') || params.get('quizData') || params.get('data')) {
         return 'host';
       }
       const urlRole = params.get('role');
@@ -47,12 +55,14 @@ export default function App() {
   };
 
   const initialQuizId = getInitialQuizId();
+  const initialQuizData = getInitialQuizData();
 
   const [activeRole, setActiveRole] = useState(getInitialRole);
   const [activePin, setActivePin] = useState(getInitialPin);
   const [activeQuizId, setActiveQuizId] = useState(initialQuizId);
+  const [activeQuizData, setActiveQuizData] = useState(initialQuizData);
   // If user arrives via a shared quiz link, grant instant host access
-  const [isHostAuthed, setIsHostAuthed] = useState(() => Boolean(initialQuizId) || isHostAuthenticated());
+  const [isHostAuthed, setIsHostAuthed] = useState(() => Boolean(initialQuizId || initialQuizData) || isHostAuthenticated());
 
   // Silently initialize Firebase auth on mount
   useEffect(() => {
@@ -112,6 +122,7 @@ export default function App() {
         ) : (
           <HostConsole
             initialQuizId={activeQuizId}
+            initialQuizData={activeQuizData}
             onRoomCodeReady={(pin: string) => setActivePin(pin)}
             onOpenDisplay={(pin: string) => {
               setActivePin(pin);
