@@ -565,7 +565,7 @@ export default function LiveDisplay({ roomCode: initialRoomCode = '', onSwitchTo
             <div className="flex flex-col items-center p-5 rounded-3xl bg-slate-900/90 border border-slate-800 shadow-2xl backdrop-blur-md shrink-0">
               <div className="w-44 h-44 sm:w-52 sm:h-52 bg-white p-3 rounded-2xl shadow-inner flex items-center justify-center overflow-hidden">
                 <img
-                  src="https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=https%3A%2F%2Fvegandayman.github.io%2FQuiz-app-2%2F%3Frole%3Ddisplay"
+                  src="https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=https%3A%2F%2Fvegandayman.github.io%2FQuiz-app-2%2F"
                   alt="Scan QR code to join quiz"
                   className="w-full h-full object-contain"
                 />
