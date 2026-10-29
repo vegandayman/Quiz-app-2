@@ -547,15 +547,33 @@ export default function LiveDisplay({ roomCode: initialRoomCode = '', onSwitchTo
           </div>
         </header>
 
-        <main className="my-auto text-center flex flex-col items-center">
-          <p className="text-lg sm:text-2xl font-bold uppercase tracking-widest text-purple-400 mb-3">
-            Join on your phone with Game PIN
+        <main className="my-auto text-center flex flex-col items-center w-full max-w-5xl">
+          <p className="text-lg sm:text-2xl font-bold uppercase tracking-widest text-purple-400 mb-6">
+            Join on your phone with Game PIN or Scan QR Code
           </p>
 
-          <div className="py-6 px-12 rounded-3xl bg-slate-900/90 border border-slate-800 shadow-2xl backdrop-blur-md">
-            <span className="text-7xl sm:text-9xl font-black tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-purple-400 via-pink-400 to-amber-300 drop-shadow-[0_15px_30px_rgba(168,85,247,0.4)]">
-              {activeCode}
-            </span>
+          <div className="flex flex-col md:flex-row items-center justify-center gap-6 sm:gap-10 w-full max-w-4xl">
+            {/* Game PIN Card */}
+            <div className="flex-1 w-full py-8 px-8 sm:px-12 rounded-3xl bg-slate-900/90 border border-slate-800 shadow-2xl backdrop-blur-md flex flex-col items-center justify-center">
+              <span className="text-xs uppercase tracking-widest font-bold text-slate-400 mb-2">Game PIN</span>
+              <span className="text-7xl sm:text-8xl lg:text-9xl font-black tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-purple-400 via-pink-400 to-amber-300 drop-shadow-[0_15px_30px_rgba(168,85,247,0.4)]">
+                {activeCode}
+              </span>
+            </div>
+
+            {/* QR Code Card */}
+            <div className="flex flex-col items-center p-5 rounded-3xl bg-slate-900/90 border border-slate-800 shadow-2xl backdrop-blur-md shrink-0">
+              <div className="w-44 h-44 sm:w-52 sm:h-52 bg-white p-3 rounded-2xl shadow-inner flex items-center justify-center overflow-hidden">
+                <img
+                  src="https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=https%3A%2F%2Fvegandayman.github.io%2FQuiz-app-2%2F%3Frole%3Ddisplay"
+                  alt="Scan QR code to join quiz"
+                  className="w-full h-full object-contain"
+                />
+              </div>
+              <span className="text-xs font-bold uppercase tracking-wider text-purple-300 mt-3 flex items-center gap-1.5">
+                <span>📱 Scan to Join</span>
+              </span>
+            </div>
           </div>
 
           <div className="w-full max-w-5xl mt-12">
