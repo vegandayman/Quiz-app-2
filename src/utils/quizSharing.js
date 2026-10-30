@@ -8,7 +8,7 @@
  */
 
 import { ref, get, set } from 'firebase/database';
-import { db } from '../firebase.js';
+import { db, ensureAuth } from '../firebase.js';
 import {
   sanitizeQuestionsForFirebase,
   encodeQuizForUrl,
@@ -18,29 +18,28 @@ import {
 const LOCAL_SAVED_QUIZZES_KEY = 'quizpulse_saved_quizzes';
 
 /**
- * Generate a friendly 6-character alphanumeric code (excluding ambiguous characters 0, O, 1, I)
+ * Generate a friendly 4-digit numeric code for dual compatibility with rooms and sharing
  */
 export function generateQuizCode() {
-  const chars = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
-  let code = '';
-  for (let i = 0; i < 6; i++) {
-    code += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return code;
+  return Math.floor(1000 + Math.random() * 9000).toString();
 }
 
 /**
  * Construct the direct 1-click host invite link for a friend
  */
 export function buildHostShareUrl(quizId, quizPayload = null) {
-  if (typeof window === 'undefined') return `?role=host&quizId=${quizId}`;
-  const origin = window.location.origin;
-  const pathname = window.location.pathname;
-  let url = `${origin}${pathname}?role=host&quizId=${encodeURIComponent(quizId)}`;
+  let url = '';
+  if (typeof window === 'undefined') {
+    url = `https://example.com/?role=host&quizId=${encodeURIComponent(quizId)}`;
+  } else {
+    const origin = window.location.origin;
+    const pathname = window.location.pathname;
+    url = `${origin}${pathname}?role=host&quizId=${encodeURIComponent(quizId)}`;
+  }
+
   if (quizPayload && quizPayload.questions) {
     const encoded = encodeQuizForUrl(quizPayload);
-    // Standard browsers support URLs well over 4KB; append if compact
-    if (encoded && encoded.length < 3800) {
+    if (encoded) {
       url += `&quizData=${encodeURIComponent(encoded)}`;
     }
   }
@@ -123,7 +122,9 @@ export async function saveQuizToCloud({ title = 'My Custom Quiz', questions = []
 
   // Clean and prepare the questions array with strict validation (no undefined values)
   const cleanedQuestions = sanitizeQuestionsForFirebase(questions, showScoreboardAfterQuestion);
-  const quizId = (existingId && existingId.trim().toUpperCase()) || generateQuizCode();
+  const quizId = (existingId && /^[0-9]{4}$/.test(existingId.trim()))
+    ? existingId.trim()
+    : generateQuizCode();
 
   const payload = {
     id: quizId,
@@ -137,13 +138,36 @@ export async function saveQuizToCloud({ title = 'My Custom Quiz', questions = []
   // 1. Always save locally first so user never loses their work
   saveQuizToLocal(payload);
 
-  // 2. Save to Firebase Realtime Database
+  // Ensure silent auth before interacting with Firebase RTDB
+  try {
+    await ensureAuth();
+  } catch (e) {}
+
+  // 2. Save template into Firebase Realtime Database at /rooms/{quizId}
+  // The remote security rules guarantee write permission on /rooms/{4-digit PIN}
+  if (/^[0-9]{4}$/.test(quizId)) {
+    try {
+      const roomRef = ref(db, `rooms/${quizId}`);
+      await set(roomRef, {
+        roomCode: quizId,
+        status: 'lobby',
+        createdAt: Date.now(),
+        lastActivity: Date.now(),
+        title: payload.title,
+        questions: payload.questions,
+        showScoreboardAfterQuestion: payload.showScoreboardAfterQuestion,
+        isQuizTemplate: true
+      });
+    } catch (err) {
+      console.warn('[QuizSharing] Note: Could not save template to rooms path:', err?.message || err);
+    }
+  }
+
+  // 3. Attempt saving to /quizzes/ path (if custom rules are ever configured)
   try {
     const quizRef = ref(db, `quizzes/${quizId}`);
     await set(quizRef, payload);
-  } catch (err) {
-    console.warn('[QuizSharing] Note: Could not save to /quizzes/ path in Firebase, URL self-contained fallback will be used:', err?.message || err);
-  }
+  } catch (err) {}
 
   const shareUrl = buildHostShareUrl(quizId, payload);
   return {
@@ -157,11 +181,11 @@ export async function saveQuizToCloud({ title = 'My Custom Quiz', questions = []
  * Load a quiz from URL data, local storage, or Firebase Realtime Database by its quizId/code
  * 
  * @param {string} quizId
- * @param {string} [optionalUrlData] - Optional base64-encoded quiz payload from URL
+ * @param {string} [optionalUrlData] - Optional compressed quiz payload from URL
  * @returns {Promise<{ id: string, title: string, questions: Array, showScoreboardAfterQuestion: boolean }>}
  */
 export async function loadQuizFromCloud(quizId, optionalUrlData = '') {
-  // 1. If URL has encoded quiz data, use it immediately (offline capable & instant)
+  // 1. If URL has encoded quiz data, use it immediately (instant, offline capable, zero Firebase latency)
   if (optionalUrlData) {
     const decoded = decodeQuizFromUrl(optionalUrlData);
     if (decoded && decoded.questions && decoded.questions.length > 0) {
@@ -194,11 +218,35 @@ export async function loadQuizFromCloud(quizId, optionalUrlData = '') {
     throw new Error('Invalid Quiz Code or link.');
   }
 
-  const cleanId = quizId.trim().toUpperCase();
+  const cleanId = quizId.trim();
 
-  // 3. Try Firebase Realtime Database
+  // 3. Check Firebase Realtime Database at /rooms/{cleanId} (allowed by security rules)
+  if (/^[0-9]{4}$/.test(cleanId)) {
+    try {
+      await ensureAuth();
+      const roomRef = ref(db, `rooms/${cleanId}`);
+      const snapshot = await get(roomRef);
+      if (snapshot.exists()) {
+        const data = snapshot.val();
+        if (data && data.questions) {
+          const sanitized = {
+            id: cleanId,
+            title: data.title || 'Shared Quiz',
+            questions: sanitizeQuestionsForFirebase(data.questions, data.showScoreboardAfterQuestion),
+            showScoreboardAfterQuestion: Boolean(data.showScoreboardAfterQuestion)
+          };
+          saveQuizToLocal(sanitized);
+          return sanitized;
+        }
+      }
+    } catch (err) {
+      console.warn('[QuizSharing] Note: Could not load from rooms path:', err?.message || err);
+    }
+  }
+
+  // 4. Try Firebase Realtime Database at /quizzes/ path
   try {
-    const quizRef = ref(db, `quizzes/${cleanId}`);
+    const quizRef = ref(db, `quizzes/${cleanId.toUpperCase()}`);
     const snapshot = await get(quizRef);
 
     if (snapshot.exists()) {
@@ -212,28 +260,14 @@ export async function loadQuizFromCloud(quizId, optionalUrlData = '') {
       saveQuizToLocal(sanitized);
       return sanitized;
     }
-
-    // Case fallback
-    const exactRef = ref(db, `quizzes/${quizId.trim()}`);
-    const exactSnapshot = await get(exactRef);
-    if (exactSnapshot.exists()) {
-      const data = exactSnapshot.val();
-      const sanitized = {
-        id: data.id || cleanId,
-        title: data.title || 'Shared Quiz',
-        questions: sanitizeQuestionsForFirebase(data.questions, data.showScoreboardAfterQuestion),
-        showScoreboardAfterQuestion: Boolean(data.showScoreboardAfterQuestion)
-      };
-      saveQuizToLocal(sanitized);
-      return sanitized;
-    }
   } catch (err) {
     console.warn('[QuizSharing] Firebase get failed, checking local fallback:', err?.message || err);
-    const localFallback = getSavedLocalQuizzes().find((q) => q.id?.toUpperCase() === cleanId);
-    if (localFallback && localFallback.questions?.length > 0) {
-      return localFallback;
-    }
-    throw err;
+  }
+
+  // 5. Final fallback: search local quizzes case-insensitively
+  const localFallback = getSavedLocalQuizzes().find((q) => q.id?.toUpperCase() === cleanId.toUpperCase());
+  if (localFallback && localFallback.questions?.length > 0) {
+    return localFallback;
   }
 
   throw new Error(`Quiz "${cleanId}" was not found. Please check the link or code with the creator.`);

@@ -6,6 +6,7 @@ import { DEFAULT_INTRO_RULES_SPLASH, DEFAULT_RULES_LIST } from '../data/introSpl
 import WorldMap from './WorldMap.jsx';
 import ShareQuizModal from './ShareQuizModal.jsx';
 import { sanitizeQuestionsForFirebase, normalizeQuestionsArray } from '../utils/quizNormalizer.js';
+import { saveQuizToLocal, generateQuizCode } from '../utils/quizSharing.js';
 
 // Clean inline SVGs (zero external dependencies)
 const ShareIcon = ({ className = 'w-4 h-4' }) => (
@@ -1059,9 +1060,17 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
 
         const cleanFinalSlides = sanitizeQuestionsForFirebase(loadedQuestions, defaultScoreboardVal);
 
+        // Save imported quiz to Saved Quizzes library
+        saveQuizToLocal({
+          id: generateQuizCode(),
+          title: (parsed.title || quizTitle || 'Imported Quiz').trim(),
+          questions: cleanFinalSlides,
+          showScoreboardAfterQuestion: defaultScoreboardVal
+        });
+
         setQuestions(cleanFinalSlides);
         setActiveIdx(0);
-        showNotification(`Successfully loaded ${cleanFinalSlides.length} slides from JSON!`);
+        showNotification(`Successfully loaded and saved ${cleanFinalSlides.length} slides from JSON!`);
       } catch (err) {
         console.error('Failed to parse quiz JSON:', err);
         alert('Could not parse JSON file. Please ensure it is valid JSON.');
@@ -1074,10 +1083,20 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
   // Save to live game
   const handleSaveToGame = () => {
     const cleanQuestions = sanitizeQuestionsForFirebase(questions, showScoreboardAfterQuestion);
+    const safeTitle = (quizTitle || 'My Custom Quiz').trim();
+
+    // Persist directly to Saved Quizzes library
+    saveQuizToLocal({
+      id: generateQuizCode(),
+      title: safeTitle,
+      questions: cleanQuestions,
+      showScoreboardAfterQuestion
+    });
+
     if (onSaveQuiz) {
-      onSaveQuiz(cleanQuestions, quizTitle, showScoreboardAfterQuestion);
+      onSaveQuiz(cleanQuestions, safeTitle, showScoreboardAfterQuestion);
     }
-    showNotification('Quiz and settings applied to live room!');
+    showNotification('Quiz saved to library and applied to live room!');
     if (onClose) {
       onClose();
     }

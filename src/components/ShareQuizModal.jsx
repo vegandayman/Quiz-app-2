@@ -154,10 +154,10 @@ export default function ShareQuizModal({
     } catch (err) {
       console.error('Failed to generate share link:', err);
       // Graceful fallback: even if cloud write fails, generate client URL
-      const fallbackCode = Math.floor(100000 + Math.random() * 900000).toString();
+      const fallbackCode = Math.floor(1000 + Math.random() * 9000).toString();
       setShareData({
         quizId: fallbackCode,
-        shareUrl: buildHostShareUrl(fallbackCode),
+        shareUrl: buildHostShareUrl(fallbackCode, effectiveQuiz),
         title: effectiveQuiz.title || 'My Custom Quiz'
       });
       setIsSaving(false);
@@ -475,7 +475,7 @@ export default function ShareQuizModal({
                             type="button"
                             onClick={(e) => {
                               e.stopPropagation();
-                              const link = buildHostShareUrl(q.id);
+                              const link = buildHostShareUrl(q.id, q);
                               navigator.clipboard.writeText(link);
                               setStatusMessage(`Copied link for "${q.title}"!`);
                               setTimeout(() => setStatusMessage(''), 2500);

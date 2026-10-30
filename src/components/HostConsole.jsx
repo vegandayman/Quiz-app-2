@@ -3,7 +3,7 @@ import { ref, onValue, update } from 'firebase/database';
 import { db } from '../firebase.js';
 import QuizMaker from './QuizMaker.jsx';
 import ShareQuizModal from './ShareQuizModal.jsx';
-import { loadQuizFromCloud } from '../utils/quizSharing.js';
+import { loadQuizFromCloud, saveQuizToLocal, generateQuizCode } from '../utils/quizSharing.js';
 import { findClosestPlayers } from '../utils/geoDistance.js';
 import { getStoredMasterPasscode, setStoredMasterPasscode } from './HostLockScreen.jsx';
 import { rankPlayersWithTieBreak, detectTopTie } from '../utils/tieBreaker.js';
@@ -12,7 +12,8 @@ import {
   sanitizeQuestionsForFirebase,
   normalizeQuestionsArray,
   saveActiveCustomQuizToStorage,
-  getActiveCustomQuizFromStorage
+  getActiveCustomQuizFromStorage,
+  decodeQuizFromUrl
 } from '../utils/quizNormalizer.js';
 import {
   findAvailableOrStaleRoomCode,
@@ -298,7 +299,17 @@ export default function HostConsole({
   initialQuizId = '',
   initialQuizData = ''
 }) {
-  const initialCustomQuiz = getActiveCustomQuizFromStorage();
+  const urlDecodedQuiz = React.useMemo(() => {
+    if (initialQuizData) {
+      const decoded = decodeQuizFromUrl(initialQuizData);
+      if (decoded && decoded.questions && decoded.questions.length > 0) {
+        return decoded;
+      }
+    }
+    return null;
+  }, [initialQuizData]);
+
+  const initialCustomQuiz = urlDecodedQuiz || getActiveCustomQuizFromStorage();
   const [roomCode, setRoomCode] = useState(() => {
     if (initialRoomCode && /^[0-9]{4}$/.test(initialRoomCode)) {
       return initialRoomCode;
@@ -335,16 +346,50 @@ export default function HostConsole({
   const [showPasscodeModal, setShowPasscodeModal] = useState(false);
   const [newPasscodeVal, setNewPasscodeVal] = useState('');
   const [passcodeSuccessMsg, setPasscodeSuccessMsg] = useState('');
+  const [isSharedQuizLoading, setIsSharedQuizLoading] = useState(() => {
+    if (urlDecodedQuiz) return false;
+    return Boolean(initialQuizId);
+  });
+  const initializedRoomRef = React.useRef(null);
+
+  // Synchronously seed banner & local storage if URL contains encoded quiz data
+  useEffect(() => {
+    if (urlDecodedQuiz) {
+      saveActiveCustomQuizToStorage(urlDecodedQuiz);
+      saveQuizToLocal({
+        id: initialQuizId || generateQuizCode(),
+        title: urlDecodedQuiz.title || 'Shared Quiz',
+        questions: urlDecodedQuiz.questions,
+        showScoreboardAfterQuestion: Boolean(urlDecodedQuiz.showScoreboardAfterQuestion)
+      });
+      setQuizBanner({
+        title: urlDecodedQuiz.title || 'Shared Quiz',
+        count: urlDecodedQuiz.questions.filter((q) => q.type !== 'splash' && q.type !== 'end').length || 0
+      });
+    }
+  }, [urlDecodedQuiz, initialQuizId]);
 
   // Automatically load shared quiz if friend arrived via 1-click host invite link (or URL quizData)
   useEffect(() => {
-    if (!initialQuizId && !initialQuizData) return;
+    if (!initialQuizId && !initialQuizData) {
+      setIsSharedQuizLoading(false);
+      return;
+    }
+    // If we already decoded it synchronously, skip duplicate async load
+    if (urlDecodedQuiz) {
+      setIsSharedQuizLoading(false);
+      return;
+    }
+
     let isMounted = true;
+    setIsSharedQuizLoading(true);
+
     loadQuizFromCloud(initialQuizId, initialQuizData)
       .then((data) => {
         if (!isMounted || !data) return;
-        if (data.title) setQuizTitle(data.title);
         const scoreboardSetting = Boolean(data.showScoreboardAfterQuestion);
+        const safeTitle = data.title || 'Shared Quiz';
+        setQuizTitle(safeTitle);
         setShowScoreboardAfterQuestion(scoreboardSetting);
 
         if (data.questions && data.questions.length > 0) {
@@ -353,7 +398,15 @@ export default function HostConsole({
           setCurrentQIndex(0);
 
           saveActiveCustomQuizToStorage({
-            title: data.title || 'Shared Quiz',
+            title: safeTitle,
+            questions: cleanQuestions,
+            showScoreboardAfterQuestion: scoreboardSetting
+          });
+
+          // Also save to library of saved quizzes on this device
+          saveQuizToLocal({
+            id: initialQuizId || generateQuizCode(),
+            title: safeTitle,
             questions: cleanQuestions,
             showScoreboardAfterQuestion: scoreboardSetting
           });
@@ -367,18 +420,24 @@ export default function HostConsole({
           }
 
           setQuizBanner({
-            title: data.title || 'Shared Quiz',
+            title: safeTitle,
             count: cleanQuestions.filter((q) => q.type !== 'splash' && q.type !== 'end').length || 0
           });
         }
       })
       .catch((err) => {
         console.warn('Could not load shared quiz from URL:', err);
+      })
+      .finally(() => {
+        if (isMounted) {
+          setIsSharedQuizLoading(false);
+        }
       });
+
     return () => {
       isMounted = false;
     };
-  }, [initialQuizId, initialQuizData, roomCode]);
+  }, [initialQuizId, initialQuizData, roomCode, urlDecodedQuiz]);
 
   // On mount, allocate an available or stale (>24h) 4-digit room code
   useEffect(() => {
@@ -410,14 +469,18 @@ export default function HostConsole({
 
   // Initialize room in Firebase Realtime Database
   useEffect(() => {
-    if (!roomCode) return;
+    // If not ready or still loading a shared quiz from link, wait so we never write default quiz into room
+    if (!roomCode || isSharedQuizLoading) return;
 
     const roomRef = ref(db, `rooms/${roomCode}`);
     const cleanInitQuestions = sanitizeQuestionsForFirebase(activeQuestions, showScoreboardAfterQuestion);
 
     // Initialize or recycle room with clean state (removes stale ghost players if recycled)
-    initializeRoomInFirebase(db, roomCode, cleanInitQuestions, showScoreboardAfterQuestion)
-      .catch((err) => console.error('Error initializing room:', err));
+    if (initializedRoomRef.current !== roomCode) {
+      initializedRoomRef.current = roomCode;
+      initializeRoomInFirebase(db, roomCode, cleanInitQuestions, showScoreboardAfterQuestion)
+        .catch((err) => console.error('Error initializing room:', err));
+    }
 
     const unsubscribe = onValue(roomRef, (snapshot) => {
       const data = snapshot.val();
@@ -439,7 +502,7 @@ export default function HostConsole({
     });
 
     return () => unsubscribe();
-  }, [roomCode]);
+  }, [roomCode, isSharedQuizLoading]);
 
   // Host Countdown Timer synchronization
   useEffect(() => {
@@ -470,6 +533,14 @@ export default function HostConsole({
 
     // Persist in localStorage so PIN resets or reload never forgets this custom quiz
     saveActiveCustomQuizToStorage({
+      title: safeTitle,
+      questions: clean,
+      showScoreboardAfterQuestion: scoreboardSetting
+    });
+
+    // Also persist in Saved Quizzes library so it appears in "Saved Quizzes" tab
+    saveQuizToLocal({
+      id: generateQuizCode(),
       title: safeTitle,
       questions: clean,
       showScoreboardAfterQuestion: scoreboardSetting

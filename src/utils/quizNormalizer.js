@@ -9,6 +9,7 @@
  */
 
 import { DEFAULT_INTRO_RULES_SPLASH } from '../data/introSplashDefaults.js';
+import LZString from 'lz-string';
 
 export const DEFAULT_END_SCREEN = {
   id: 'final-end-screen',
@@ -256,7 +257,7 @@ export function clearActiveCustomQuizFromStorage() {
 }
 
 /**
- * URL-safe Base64 encode for sharing full quizzes directly in URL
+ * Compact, URL-safe compression for sharing full quizzes directly in URL
  */
 export function encodeQuizForUrl(quizData) {
   try {
@@ -266,13 +267,8 @@ export function encodeQuizForUrl(quizData) {
       q: sanitizeQuestionsForFirebase(quizData.questions, quizData.showScoreboardAfterQuestion)
     };
     const jsonStr = JSON.stringify(minimal);
-    // Standard UTF-8 to base64
-    const utf8Bytes = new TextEncoder().encode(jsonStr);
-    let binary = '';
-    for (let i = 0; i < utf8Bytes.length; i++) {
-      binary += String.fromCharCode(utf8Bytes[i]);
-    }
-    return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    // LZString URI compression ensures ultra-compact output safe for all browsers
+    return LZString.compressToEncodedURIComponent(jsonStr);
   } catch (e) {
     console.warn('Failed to encode quiz for URL:', e);
     return '';
@@ -280,21 +276,31 @@ export function encodeQuizForUrl(quizData) {
 }
 
 /**
- * Decode quiz from URL-safe Base64
+ * Decode quiz from URL-safe string (supports LZString with legacy base64 fallback)
  */
 export function decodeQuizFromUrl(encodedStr) {
   if (!encodedStr || typeof encodedStr !== 'string') return null;
   try {
-    let base64 = encodedStr.replace(/-/g, '+').replace(/_/g, '/');
-    while (base64.length % 4) {
-      base64 += '=';
+    // 1. Try LZString decompression
+    let jsonStr = LZString.decompressFromEncodedURIComponent(encodedStr);
+
+    // 2. Legacy base64 fallback
+    if (!jsonStr) {
+      try {
+        let base64 = encodedStr.replace(/-/g, '+').replace(/_/g, '/');
+        while (base64.length % 4) {
+          base64 += '=';
+        }
+        const binary = atob(base64);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) {
+          bytes[i] = binary.charCodeAt(i);
+        }
+        jsonStr = new TextDecoder().decode(bytes);
+      } catch (err) {}
     }
-    const binary = atob(base64);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) {
-      bytes[i] = binary.charCodeAt(i);
-    }
-    const jsonStr = new TextDecoder().decode(bytes);
+
+    if (!jsonStr) return null;
     const parsed = JSON.parse(jsonStr);
 
     const questions = parsed.q || parsed.questions;

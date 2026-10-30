@@ -75,6 +75,8 @@ export default function App() {
     const handlePopState = () => {
       setActiveRole(getInitialRole());
       setActivePin(getInitialPin());
+      setActiveQuizId(getInitialQuizId());
+      setActiveQuizData(getInitialQuizData());
     };
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
