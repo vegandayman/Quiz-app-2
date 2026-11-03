@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { ref, get, set, push, onValue, update } from 'firebase/database';
-import { db } from '../firebase.js';
+import { db, ensureAuth } from '../firebase.js';
 import { checkFreeInputAnswer } from '../utils/answerMatcher.js';
 import WorldMap from './WorldMap.jsx';
 import { playEmergencyBrakeSound } from '../data/paSparetPresets.js';
@@ -181,6 +181,7 @@ export default function PlayerJoin({ initialRoomCode = '', onOpenHost }) {
     setIsLoading(true);
     setErrorMessage('');
     try {
+      await ensureAuth();
       const roomRef = ref(db, `rooms/${savedCode}`);
       const snapshot = await get(roomRef);
       if (!snapshot.exists()) {
@@ -274,7 +275,7 @@ export default function PlayerJoin({ initialRoomCode = '', onOpenHost }) {
 
     setIsLoading(true);
 
-    const withTimeout = (promise, ms = 6000) => {
+    const withTimeout = (promise, ms = 7000) => {
       return Promise.race([
         promise,
         new Promise((_, reject) =>
@@ -283,22 +284,22 @@ export default function PlayerJoin({ initialRoomCode = '', onOpenHost }) {
       ]);
     };
 
-    try {
+    // Helper encapsulating the room verification and player join write
+    const attemptJoinOperation = async () => {
+      // 1. Ensure silent anonymous authentication is resolved before contacting Realtime Database
+      await ensureAuth();
+
       const roomRef = ref(db, `rooms/${trimmedCode}`);
       const snapshot = await withTimeout(get(roomRef));
 
       if (!snapshot.exists()) {
-        setErrorMessage(`Room "${trimmedCode}" not found. Verify PIN with the host.`);
-        setIsLoading(false);
-        return;
+        return { error: `Room "${trimmedCode}" not found. Verify PIN with the host.` };
       }
 
       const data = snapshot.val();
 
       if (data.status === 'closed') {
-        setErrorMessage('This room has been closed. Please ask the host for the new Room PIN.');
-        setIsLoading(false);
-        return;
+        return { error: 'This room has been closed. Please ask the host for the new Room PIN.' };
       }
 
       // Check if player with this nickname already exists in the room (RECONNECT / RECLAIM)
@@ -318,15 +319,12 @@ export default function PlayerJoin({ initialRoomCode = '', onOpenHost }) {
         storePlayerSession(trimmedCode, existingId, existingPlayer.name);
         setReconnectBanner(`Reconnected as ${existingPlayer.name}! (${existingPlayer.score || 0} pts)`);
         setTimeout(() => setReconnectBanner(null), 4000);
-        setIsLoading(false);
-        return;
+        return { success: true };
       }
 
       // If nickname is new and game is already past lobby, instruct player
       if (data.status !== 'lobby') {
-        setErrorMessage('This game is already in progress. If you were disconnected, make sure to enter your exact previous nickname to reclaim your score.');
-        setIsLoading(false);
-        return;
+        return { error: 'This game is already in progress. If you were disconnected, make sure to enter your exact previous nickname to reclaim your score.' };
       }
 
       // Add new player to rooms/{roomCode}/players/{playerId}
@@ -348,10 +346,45 @@ export default function PlayerJoin({ initialRoomCode = '', onOpenHost }) {
       setJoinedRoomCode(trimmedCode);
       setIsJoined(true);
       storePlayerSession(trimmedCode, generatedPlayerId, trimmedName);
+      return { success: true };
+    };
+
+    try {
+      const result = await attemptJoinOperation();
+      if (result.error) {
+        setErrorMessage(result.error);
+      }
       setIsLoading(false);
     } catch (err) {
-      console.error('Error joining room in Firebase:', err);
-      setErrorMessage(err.message || 'Failed to connect to Firebase.');
+      console.warn('[PlayerJoin] Initial join attempt error:', err);
+
+      const isPermissionOrAuthError =
+        err?.message?.toLowerCase().includes('permission_denied') ||
+        err?.code === 'PERMISSION_DENIED' ||
+        String(err).toLowerCase().includes('permission denied');
+
+      // If a permission or auth sync delay occurred (e.g. cold-start in iOS Camera QR sheet),
+      // force refresh authentication and immediately retry once!
+      if (isPermissionOrAuthError) {
+        try {
+          console.info('[PlayerJoin] Refreshing auth token and retrying join...');
+          await ensureAuth(true);
+          const retryResult = await attemptJoinOperation();
+          if (retryResult.error) {
+            setErrorMessage(retryResult.error);
+          }
+          setIsLoading(false);
+          return;
+        } catch (retryErr) {
+          console.error('[PlayerJoin] Retry after auth refresh failed:', retryErr);
+        }
+      }
+
+      setErrorMessage(
+        isPermissionOrAuthError
+          ? 'Connecting to game... Please tap "Enter Game" again.'
+          : (err?.message || 'Failed to connect to Firebase.')
+      );
       setIsLoading(false);
     }
   };
@@ -440,6 +473,23 @@ export default function PlayerJoin({ initialRoomCode = '', onOpenHost }) {
     return () => clearInterval(interval);
   }, [roomData?.status, roomData?.questionStartTime, roomData?.timeLimit]);
 
+  // Safe helper to update player state in Firebase with automatic auth retry
+  const safePlayerUpdate = async (updatePayload) => {
+    if (!joinedRoomCode || !currentPlayerId) return;
+    const playerRef = ref(db, `rooms/${joinedRoomCode}/players/${currentPlayerId}`);
+    try {
+      await update(playerRef, updatePayload);
+    } catch (err) {
+      console.warn('[PlayerJoin] Player update error, refreshing auth and retrying:', err);
+      try {
+        await ensureAuth(true);
+        await update(playerRef, updatePayload);
+      } catch (retryErr) {
+        console.error('[PlayerJoin] Failed player update on retry:', retryErr);
+      }
+    }
+  };
+
   // Handle Player Tapping an Answer Button with speed-based Kahoot scoring and custom question points
   const handleSelectAnswer = async (choiceIndex) => {
     if (myAnswer !== null || !roomData || timeLeft <= 0) return;
@@ -461,9 +511,7 @@ export default function PlayerJoin({ initialRoomCode = '', onOpenHost }) {
     setMyAnswer(choiceIndex);
 
     const currentScore = roomData.players?.[currentPlayerId]?.score || 0;
-    const playerRef = ref(db, `rooms/${joinedRoomCode}/players/${currentPlayerId}`);
-
-    await update(playerRef, {
+    await safePlayerUpdate({
       score: currentScore + pointsAwarded,
       [`answers/${currentQIndex}`]: {
         choiceIndex,
@@ -505,9 +553,7 @@ export default function PlayerJoin({ initialRoomCode = '', onOpenHost }) {
     setMyAnswer(trimmed);
 
     const currentScore = roomData.players?.[currentPlayerId]?.score || 0;
-    const playerRef = ref(db, `rooms/${joinedRoomCode}/players/${currentPlayerId}`);
-
-    await update(playerRef, {
+    await safePlayerUpdate({
       score: currentScore + pointsAwarded,
       [`answers/${currentQIndex}`]: {
         textAnswer: trimmed,
@@ -533,8 +579,7 @@ export default function PlayerJoin({ initialRoomCode = '', onOpenHost }) {
 
     setMyAnswer(selectedPin);
 
-    const playerRef = ref(db, `rooms/${joinedRoomCode}/players/${currentPlayerId}`);
-    await update(playerRef, {
+    await safePlayerUpdate({
       [`answers/${currentQIndex}`]: {
         lat: selectedPin.lat,
         lng: selectedPin.lng,
@@ -579,9 +624,7 @@ export default function PlayerJoin({ initialRoomCode = '', onOpenHost }) {
     setMyAnswer(trimmed);
 
     const currentScore = roomData.players?.[currentPlayerId]?.score || 0;
-    const playerRef = ref(db, `rooms/${joinedRoomCode}/players/${currentPlayerId}`);
-
-    await update(playerRef, {
+    await safePlayerUpdate({
       score: currentScore + pointsAwarded,
       [`answers/${currentQIndex}`]: {
         textAnswer: trimmed,

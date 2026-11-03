@@ -7,7 +7,13 @@
 
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getDatabase } from 'firebase/database';
-import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
+import {
+  getAuth,
+  signInAnonymously,
+  onAuthStateChanged,
+  setPersistence,
+  inMemoryPersistence
+} from 'firebase/auth';
 
 // Firebase configuration object
 const firebaseConfig = {
@@ -33,28 +39,61 @@ const auth = getAuth(app);
 /**
  * Ensures the user (Host, Player, or Live Display) has an active Firebase Auth session.
  * Uses silent Anonymous Authentication so no passwords, emails, or login prompts are shown.
- * This guarantees `auth != null` in Firebase Realtime Database Security Rules,
- * completely satisfying Firebase security scanner requirements and stopping insecure rule warning emails.
+ * Includes in-memory persistence fallback for restricted in-app browsers (e.g. iOS Camera QR scanner)
+ * and support for force-refreshing tokens if a socket sync delay occurs.
  */
 let authPromise = null;
-export const ensureAuth = () => {
-  if (auth.currentUser) {
-    return Promise.resolve(auth.currentUser);
+export const ensureAuth = async (forceRefresh = false) => {
+  // If user already authenticated and not forcing a refresh, return current user
+  if (auth.currentUser && !forceRefresh) {
+    return auth.currentUser;
   }
-  if (!authPromise) {
-    authPromise = signInAnonymously(auth)
-      .then((userCredential) => {
-        return userCredential.user;
-      })
-      .catch((err) => {
-        authPromise = null;
-        console.warn(
-          '[Firebase Auth] Note: To complete database security hardening, make sure "Anonymous" sign-in provider is enabled in Firebase Console -> Authentication -> Sign-in method.',
-          err?.message || err
+
+  // If force refresh requested on existing user, force token refresh with Firebase
+  if (forceRefresh && auth.currentUser) {
+    try {
+      await auth.currentUser.getIdToken(true);
+      return auth.currentUser;
+    } catch (e) {
+      console.warn('[Firebase Auth] Force token refresh encountered an error, re-signing in:', e);
+    }
+  }
+
+  // If a sign-in is currently underway and not forced, reuse existing promise
+  if (authPromise && !forceRefresh) {
+    return authPromise;
+  }
+
+  authPromise = (async () => {
+    // Attempt 1: Standard anonymous sign-in (persisted in IndexedDB/localStorage)
+    try {
+      const userCredential = await signInAnonymously(auth);
+      return userCredential.user;
+    } catch (err) {
+      console.warn(
+        '[Firebase Auth] Primary anonymous sign-in attempt failed, trying in-memory fallback:',
+        err?.message || err
+      );
+
+      // Attempt 2: In-app browsers (such as iOS Camera QR scanner) may block IndexedDB.
+      // Fallback to inMemoryPersistence so auth succeeds even under strict ephemeral sandbox conditions.
+      try {
+        if (typeof setPersistence === 'function' && inMemoryPersistence) {
+          await setPersistence(auth, inMemoryPersistence);
+        }
+        const fallbackCred = await signInAnonymously(auth);
+        return fallbackCred.user;
+      } catch (fallbackErr) {
+        console.error(
+          '[Firebase Auth] All anonymous sign-in attempts failed:',
+          fallbackErr?.message || fallbackErr
         );
+        authPromise = null;
         return null;
-      });
-  }
+      }
+    }
+  })();
+
   return authPromise;
 };
 
