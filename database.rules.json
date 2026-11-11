@@ -119,6 +119,12 @@
                 },
                 "answeredAt": {
                   ".validate": "newData.isNumber()"
+                },
+                "musicAnswers": {
+                  ".validate": "newData.hasChildren()"
+                },
+                "playerMusicInputs": {
+                  ".validate": "newData.hasChildren()"
                 }
               }
             }

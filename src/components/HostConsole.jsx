@@ -71,6 +71,14 @@ const TrainIcon = ({ className = 'w-4 h-4' }) => (
   </svg>
 );
 
+const MusicIcon = ({ className = 'w-4 h-4' }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M9 18V5l12-2v13" />
+    <circle cx="6" cy="18" r="3" />
+    <circle cx="18" cy="16" r="3" />
+  </svg>
+);
+
 const EditIcon = ({ className = 'w-4 h-4' }) => (
   <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
@@ -725,6 +733,24 @@ export default function HostConsole({
       timeElapsedSec: ans?.timeElapsedSec || 0
     };
   }).filter((p) => p.hasBraked);
+
+  const isMusic = activeQuestion?.type === 'music';
+  const musicAnswersList = players.map((p) => {
+    const ans = p.answers?.[currentQIndex];
+    const hasSubmitted = ans !== undefined && (ans.musicAnswers || ans.playerMusicInputs || ans.textAnswer !== undefined);
+    return {
+      id: p.id,
+      name: p.name,
+      score: p.score || 0,
+      hasSubmitted,
+      musicAnswers: ans?.musicAnswers || ans?.playerMusicInputs || {},
+      textAnswer: ans?.textAnswer || '',
+      fieldResults: ans?.fieldResults || [],
+      isCorrect: Boolean(ans?.isCorrect),
+      pointsAwarded: ans?.pointsAwarded || 0,
+      timeElapsedSec: ans?.timeElapsedSec || 0
+    };
+  }).filter((p) => p.hasSubmitted);
 
   const allPlayersAnswered = players.length > 0 && totalSubmitted === players.length;
 
@@ -1612,11 +1638,12 @@ export default function HostConsole({
                   {activeQuestion.type === 'closest_pin' && <MapPinIcon className="w-3.5 h-3.5 text-emerald-400" />}
                   {activeQuestion.type === 'free_input' && <KeyboardIcon className="w-3.5 h-3.5 text-cyan-400" />}
                   {activeQuestion.type === 'pa_sparet' && <TrainIcon className="w-3.5 h-3.5 text-amber-400" />}
-                  <span>{activeQuestion.type === 'closest_pin' ? 'CLOSEST-PIN' : activeQuestion.type === 'free_input' ? 'FREE-TEXT' : activeQuestion.type === 'pa_sparet' ? 'PÅ SPÅRET' : 'QUESTION'} {questionsPassed} OF {totalQuestions}</span>
+                  {activeQuestion.type === 'music' && <MusicIcon className="w-3.5 h-3.5 text-rose-400" />}
+                  <span>{activeQuestion.type === 'closest_pin' ? 'CLOSEST-PIN' : activeQuestion.type === 'free_input' ? 'FREE-TEXT' : activeQuestion.type === 'pa_sparet' ? 'PÅ SPÅRET' : activeQuestion.type === 'music' ? 'MUSIC ROUND' : 'QUESTION'} {questionsPassed} OF {totalQuestions}</span>
                 </span>
                 <span className="px-2.5 py-1 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300 font-mono text-xs font-bold flex items-center gap-1">
                   <AwardIcon className="w-3.5 h-3.5 text-amber-400" />
-                  <span>{activeQuestion.points !== undefined && activeQuestion.points !== '' ? activeQuestion.points : 1} {Number(activeQuestion.points ?? 1) === 1 ? 'pt' : 'pts'}</span>
+                  <span>{activeQuestion.type === 'music' ? `${activeQuestion.points || activeQuestion.fields?.reduce((s, f) => s + (Number(f.points) || 1), 0) || 1} pts total` : `${activeQuestion.points !== undefined && activeQuestion.points !== '' ? activeQuestion.points : 1} ${Number(activeQuestion.points ?? 1) === 1 ? 'pt' : 'pts'}`}</span>
                 </span>
               </div>
 
@@ -1832,6 +1859,73 @@ export default function HostConsole({
                           <span className="w-2 h-2 rounded-full bg-red-500 animate-ping" />
                           <span>{entry.name}</span>
                           <span className="font-mono text-xs text-amber-400">({entry.lockedTier} pts lock)</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : activeQuestion.type === 'music' ? (
+              <div className="p-5 rounded-2xl bg-rose-950/30 border-2 border-rose-500/50 space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-rose-900/40">
+                  <span className="text-xs font-bold uppercase tracking-wider text-rose-300 flex items-center gap-1.5">
+                    <MusicIcon className="w-4 h-4 text-rose-400" />
+                    Music Round · Confidential Key & Answer Rows Guide
+                  </span>
+                  <span className="text-[11px] font-mono text-rose-400/90 bg-rose-950 border border-rose-800/80 px-2 py-0.5 rounded">
+                    {activeQuestion.fields?.length || 1} Answer Rows ({activeQuestion.points || 1} Total Pts)
+                  </span>
+                </div>
+
+                {/* Answer Rows Key */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {(activeQuestion.fields || []).map((field, idx) => (
+                    <div key={field.id || idx} className="p-3.5 rounded-xl bg-slate-950 border border-rose-500/40 space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-rose-400">
+                          {field.type === 'artist' ? '🎤' : field.type === 'song' ? '🎵' : '🎶'} {field.label || `Field ${idx + 1}`}
+                        </span>
+                        <span className="text-[10px] font-mono font-bold text-amber-300">
+                          {field.points || 1} pt
+                        </span>
+                      </div>
+                      <span className="text-lg font-black text-white block">
+                        {field.correctAnswer || '(Empty)'}
+                      </span>
+                      {field.acceptedAnswers && (
+                        <span className="text-[11px] text-slate-400 block font-normal">
+                          Also accepts: <span className="text-rose-300">{field.acceptedAnswers}</span>
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Secret Trivia / Note */}
+                {activeQuestion.secretNote && (
+                  <div className="p-3 rounded-xl bg-slate-950 border border-amber-500/30 text-xs">
+                    <span className="text-[10px] uppercase font-bold text-amber-400 block mb-0.5">Trivia Note:</span>
+                    <p className="text-slate-300">{activeQuestion.secretNote}</p>
+                  </div>
+                )}
+
+                {/* Live Locked In Submissions */}
+                {musicAnswersList.length > 0 && (
+                  <div className="pt-2 border-t border-rose-900/40 space-y-2">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-rose-300">
+                      Live Submissions Locked In ({musicAnswersList.length} players):
+                    </span>
+                    <div className="flex flex-wrap gap-2">
+                      {musicAnswersList.map((entry) => (
+                        <div
+                          key={entry.id}
+                          className="px-3 py-1.5 rounded-xl text-xs flex items-center gap-2 border font-bold bg-slate-950 border-rose-500/40 text-rose-200"
+                        >
+                          <span className="w-2 h-2 rounded-full bg-rose-400 animate-ping" />
+                          <span>{entry.name}</span>
+                          <span className="font-mono text-xs text-rose-400">
+                            ({Object.keys(entry.musicAnswers).length} fields)
+                          </span>
                         </div>
                       ))}
                     </div>

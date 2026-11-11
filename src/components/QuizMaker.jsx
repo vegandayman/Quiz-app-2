@@ -2,6 +2,7 @@ import React, { useState, useRef } from 'react';
 import { checkFreeInputAnswer } from '../utils/answerMatcher.js';
 import { LANDMARK_PRESETS } from '../utils/geoDistance.js';
 import { PA_SPARET_PRESETS, extractYouTubeId } from '../data/paSparetPresets.js';
+import { MUSIC_PRESETS } from '../data/musicPresets.js';
 import { DEFAULT_INTRO_RULES_SPLASH, DEFAULT_RULES_LIST } from '../data/introSplashDefaults.js';
 import WorldMap from './WorldMap.jsx';
 import ShareQuizModal from './ShareQuizModal.jsx';
@@ -9,6 +10,14 @@ import { sanitizeQuestionsForFirebase, normalizeQuestionsArray } from '../utils/
 import { saveQuizToLocal, generateQuizCode } from '../utils/quizSharing.js';
 
 // Clean inline SVGs (zero external dependencies)
+const MusicIcon = ({ className = 'w-4 h-4' }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M9 18V5l12-2v13" />
+    <circle cx="6" cy="18" r="3" />
+    <circle cx="18" cy="16" r="3" />
+  </svg>
+);
+
 const ShareIcon = ({ className = 'w-4 h-4' }) => (
   <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <circle cx="18" cy="5" r="3" />
@@ -298,6 +307,34 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
             showScoreboardAfterQuestion: q.showScoreboardAfterQuestion !== undefined ? Boolean(q.showScoreboardAfterQuestion) : initialShowScoreboardAfterQuestion
           };
         }
+        if (q.type === 'music') {
+          const defaultFields = [
+            { id: 'f-1', type: 'artist', label: 'Artist 1', correctAnswer: '', acceptedAnswers: '', points: 1 }
+          ];
+          const rawFields = Array.isArray(q.fields) && q.fields.length > 0 ? q.fields : defaultFields;
+          const cleanFields = rawFields.map((f, fIdx) => ({
+            id: f.id || `f-${fIdx + 1}`,
+            type: f.type === 'song' ? 'song' : (f.type === 'custom' ? 'custom' : 'artist'),
+            label: f.label || (f.type === 'song' ? `Song Name ${fIdx + 1}` : `Artist ${fIdx + 1}`),
+            correctAnswer: f.correctAnswer || '',
+            acceptedAnswers: f.acceptedAnswers || '',
+            points: f.points !== undefined && f.points !== '' && !isNaN(Number(f.points)) ? Math.max(0, Number(f.points)) : 1
+          }));
+          const totalPts = cleanFields.reduce((sum, f) => sum + (Number(f.points) || 1), 0);
+
+          return {
+            ...q,
+            type: 'music',
+            question: q.question || 'Name the artist and song title!',
+            youtubeUrl: q.youtubeUrl || '',
+            videoStartTime: q.videoStartTime !== undefined && !isNaN(Number(q.videoStartTime)) ? Number(q.videoStartTime) : 0,
+            fields: cleanFields,
+            points: totalPts > 0 ? totalPts : (q.points && !isNaN(Number(q.points)) ? Number(q.points) : 1),
+            secretNote: q.secretNote !== undefined ? q.secretNote : '',
+            timeLimit: q.timeLimit || 60,
+            showScoreboardAfterQuestion: q.showScoreboardAfterQuestion !== undefined ? Boolean(q.showScoreboardAfterQuestion) : initialShowScoreboardAfterQuestion
+          };
+        }
         return {
           ...q,
           type: 'question',
@@ -530,7 +567,34 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
     showNotification(`New På Spåret Question added after slide #${activeIdx + 1}!`);
   };
 
-  // Switch active slide question type (between Multiple Choice, Free Input, Closest Wins, and På Spåret)
+  // Add new Music Question slide (YouTube Auto-Play + Dynamic Multi-Field Free-Text Answers)
+  const handleAddMusic = (preset = null) => {
+    const defaultFields = [
+      { id: 'f-1', type: 'artist', label: 'Artist 1', correctAnswer: '', acceptedAnswers: '', points: 1 }
+    ];
+    const newMusic = {
+      id: Date.now(),
+      type: 'music',
+      question: preset ? preset.question : 'Name the artist and song title!',
+      youtubeUrl: preset ? preset.youtubeUrl : 'https://www.youtube.com/watch?v=fJ9rUzIMcZQ',
+      videoStartTime: preset && preset.videoStartTime !== undefined ? preset.videoStartTime : 0,
+      timeLimit: preset?.timeLimit || 60,
+      fields: preset ? JSON.parse(JSON.stringify(preset.fields)) : defaultFields,
+      points: preset ? preset.fields.reduce((s, f) => s + (f.points || 1), 0) : 1,
+      secretNote: preset?.secretNote || '',
+      showScoreboardAfterQuestion: showScoreboardAfterQuestion
+    };
+    const endScreenIndex = questions.findIndex((q) => q.type === 'end');
+    const maxInsertIndex = endScreenIndex !== -1 ? endScreenIndex : questions.length;
+    const insertIndex = activeIdx >= 0 && activeIdx < maxInsertIndex ? activeIdx + 1 : maxInsertIndex;
+    const updated = [...questions];
+    updated.splice(insertIndex, 0, newMusic);
+    setQuestions(updated);
+    setActiveIdx(insertIndex);
+    showNotification(`New Music Question added after slide #${activeIdx + 1}!`);
+  };
+
+  // Switch active slide question type (between Multiple Choice, Free Input, Closest Wins, På Spåret, and Music)
   const handleSwitchQuestionType = (newType) => {
     if (!activeQ || activeQ.type === 'splash' || activeQ.type === 'end' || activeQ.type === newType) return;
     const updated = [...questions];
@@ -580,6 +644,21 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
         timeLimit: 90
       };
       showNotification('Converted to På Spåret progressive train clues (10-8-6-4-2 pts)');
+    } else if (newType === 'music') {
+      const defaultFields = [
+        { id: 'f-1', type: 'artist', label: 'Artist 1', correctAnswer: activeQ.correctAnswer || '', acceptedAnswers: activeQ.acceptedAnswers || '', points: 1 }
+      ];
+      updated[activeIdx] = {
+        ...activeQ,
+        type: 'music',
+        question: activeQ.question && !activeQ.question.startsWith('New ') ? activeQ.question : 'Name the artist and song title!',
+        youtubeUrl: activeQ.youtubeUrl || 'https://www.youtube.com/watch?v=fJ9rUzIMcZQ',
+        videoStartTime: activeQ.videoStartTime !== undefined ? Number(activeQ.videoStartTime) : 0,
+        fields: Array.isArray(activeQ.fields) && activeQ.fields.length > 0 ? activeQ.fields : defaultFields,
+        points: Array.isArray(activeQ.fields) && activeQ.fields.length > 0 ? activeQ.fields.reduce((s, f) => s + (f.points || 1), 0) : 1,
+        timeLimit: activeQ.timeLimit || 60
+      };
+      showNotification('Converted to Music Question (YouTube playback with free-text answer fields)');
     } else {
       updated[activeIdx] = {
         ...activeQ,
@@ -592,6 +671,104 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
       showNotification('Converted to 4-Choice Multiple Question');
     }
     setQuestions(updated);
+  };
+
+  // Add field to current active music question
+  const handleAddMusicField = () => {
+    if (!activeQ || activeQ.type !== 'music') return;
+    const currentFields = Array.isArray(activeQ.fields) ? [...activeQ.fields] : [];
+
+    const artistCount = currentFields.filter(f => f.type === 'artist').length;
+    const songCount = currentFields.filter(f => f.type === 'song').length;
+
+    let nextType = 'song';
+    let nextLabel = `Song Name ${songCount + 1}`;
+
+    if (artistCount === 0) {
+      nextType = 'artist';
+      nextLabel = 'Artist 1';
+    } else if (artistCount > songCount) {
+      nextType = 'song';
+      nextLabel = `Song Name ${artistCount}`;
+    } else {
+      nextType = 'artist';
+      nextLabel = `Artist ${artistCount + 1}`;
+    }
+
+    const newField = {
+      id: `f-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 5)}`,
+      type: nextType,
+      label: nextLabel,
+      correctAnswer: '',
+      acceptedAnswers: '',
+      points: 1
+    };
+
+    const updatedFields = [...currentFields, newField];
+    const totalPts = updatedFields.reduce((sum, f) => sum + (Number(f.points) || 1), 0);
+
+    const updated = [...questions];
+    updated[activeIdx] = {
+      ...activeQ,
+      fields: updatedFields,
+      points: totalPts
+    };
+    setQuestions(updated);
+    showNotification(`Added new answer row: "${nextLabel}"`);
+  };
+
+  // Update a field in the current music question
+  const handleUpdateMusicField = (fieldIdx, key, value) => {
+    if (!activeQ || activeQ.type !== 'music') return;
+    const currentFields = Array.isArray(activeQ.fields) ? [...activeQ.fields] : [];
+    if (!currentFields[fieldIdx]) return;
+
+    const updatedField = { ...currentFields[fieldIdx], [key]: value };
+
+    // Auto-update label when user switches type if label matched the default pattern
+    if (key === 'type') {
+      const fieldNum = fieldIdx + 1;
+      if (value === 'artist') {
+        updatedField.label = `Artist ${fieldNum}`;
+      } else if (value === 'song') {
+        updatedField.label = `Song Name ${fieldNum}`;
+      } else if (value === 'both') {
+        updatedField.label = `Artist & Song ${fieldNum}`;
+      }
+    }
+
+    currentFields[fieldIdx] = updatedField;
+    const totalPts = currentFields.reduce((sum, f) => sum + (Number(f.points) || 1), 0);
+
+    const updated = [...questions];
+    updated[activeIdx] = {
+      ...activeQ,
+      fields: currentFields,
+      points: totalPts
+    };
+    setQuestions(updated);
+  };
+
+  // Remove a field from current music question (minimum 1 field required)
+  const handleRemoveMusicField = (fieldIdx) => {
+    if (!activeQ || activeQ.type !== 'music') return;
+    const currentFields = Array.isArray(activeQ.fields) ? [...activeQ.fields] : [];
+    if (currentFields.length <= 1) {
+      showNotification('A music question requires at least one answer row.');
+      return;
+    }
+    const removedLabel = currentFields[fieldIdx]?.label || 'Row';
+    currentFields.splice(fieldIdx, 1);
+    const totalPts = currentFields.reduce((sum, f) => sum + (Number(f.points) || 1), 0);
+
+    const updated = [...questions];
+    updated[activeIdx] = {
+      ...activeQ,
+      fields: currentFields,
+      points: totalPts
+    };
+    setQuestions(updated);
+    showNotification(`Removed answer row: "${removedLabel}"`);
   };
 
   // Add new splash screen slide (inserted after currently selected slide, before the end screen)
@@ -874,6 +1051,25 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
             points: 10,
             secretNote: q.secretNote || '',
             timeLimit: q.timeLimit ? Number(q.timeLimit) : 90,
+            showScoreboardAfterQuestion: q.showScoreboardAfterQuestion !== undefined
+              ? Boolean(q.showScoreboardAfterQuestion)
+              : Boolean(showScoreboardAfterQuestion)
+          };
+        }
+
+        if (q.type === 'music') {
+          return {
+            id: q.id || idx + 1,
+            type: 'music',
+            question: q.question || 'Name the artist and song title!',
+            youtubeUrl: q.youtubeUrl || '',
+            videoStartTime: q.videoStartTime !== undefined && !isNaN(Number(q.videoStartTime)) ? Number(q.videoStartTime) : 0,
+            fields: Array.isArray(q.fields) ? q.fields : [],
+            points: typeof q.points === 'number' && !isNaN(q.points)
+              ? q.points
+              : (q.points !== undefined && q.points !== '' && !isNaN(Number(q.points)) ? Number(q.points) : 1),
+            secretNote: q.secretNote || '',
+            timeLimit: q.timeLimit ? Number(q.timeLimit) : 60,
             showScoreboardAfterQuestion: q.showScoreboardAfterQuestion !== undefined
               ? Boolean(q.showScoreboardAfterQuestion)
               : Boolean(showScoreboardAfterQuestion)
@@ -1304,6 +1500,7 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
                 const isFreeInput = item.type === 'free_input';
                 const isClosestPin = item.type === 'closest_pin';
                 const isPaSparet = item.type === 'pa_sparet';
+                const isMusic = item.type === 'music';
                 const isEnd = item.type === 'end';
                 const isSelected = activeIdx === idx;
 
@@ -1323,6 +1520,8 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
                           ? 'bg-gradient-to-r from-cyan-900/80 to-purple-900/80 border-cyan-400 text-white font-bold shadow-md shadow-cyan-600/25'
                           : isPaSparet
                           ? 'bg-gradient-to-r from-amber-900/80 to-yellow-900/80 border-amber-400 text-white font-bold shadow-md shadow-amber-600/25'
+                          : isMusic
+                          ? 'bg-gradient-to-r from-indigo-900/80 via-purple-900/80 to-pink-900/80 border-indigo-400 text-white font-bold shadow-md shadow-indigo-600/25'
                           : 'bg-purple-600 border-purple-400 text-white font-bold shadow-md shadow-purple-600/25'
                         : isEnd
                         ? 'bg-amber-950/20 border-amber-800/40 text-amber-200 hover:border-amber-700/60'
@@ -1334,6 +1533,8 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
                         ? 'bg-cyan-950/20 border-cyan-800/40 text-cyan-200 hover:border-cyan-700/60'
                         : isPaSparet
                         ? 'bg-amber-950/20 border-amber-800/40 text-amber-200 hover:border-amber-700/60'
+                        : isMusic
+                        ? 'bg-indigo-950/20 border-indigo-800/40 text-indigo-200 hover:border-indigo-700/60'
                         : 'bg-slate-950/60 border-slate-800 text-slate-300 hover:border-slate-700'
                     }`}
                   >
@@ -1377,6 +1578,15 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
                             <TrainIcon className="w-2.5 h-2.5" /> SPÅRET
                           </span>
                         </div>
+                      ) : isMusic ? (
+                        <div className="flex items-center gap-1 shrink-0">
+                          <span className={`font-mono font-bold ${isSelected ? 'text-indigo-200' : 'text-indigo-400'}`}>
+                            {idx + 1}.
+                          </span>
+                          <span className="px-1.5 py-0.5 rounded bg-indigo-500/30 border border-indigo-400/40 text-indigo-200 font-black text-[8px] uppercase tracking-wider flex items-center gap-0.5">
+                            <MusicIcon className="w-2.5 h-2.5" /> MUSIC
+                          </span>
+                        </div>
                       ) : (
                         <span className={`font-mono font-bold shrink-0 ${isSelected ? 'text-purple-200' : 'text-purple-400'}`}>
                           {idx + 1}.
@@ -1384,7 +1594,7 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
                       )}
 
                       <span className="truncate font-semibold">
-                        {isEnd ? (item.title || "Final Scoreboard & Podium") : isSplash ? (item.title || 'Now the Music Round!') : isClosestPin ? (item.landmarkName ? `${item.landmarkName} (${item.locationName || 'Map'})` : item.question || 'Closest Wins') : isPaSparet ? (item.destination ? `På Spåret: ${item.destination}` : 'På Spåret') : (item.question || 'Untitled Question')}
+                        {isEnd ? (item.title || "Final Scoreboard & Podium") : isSplash ? (item.title || 'Now the Music Round!') : isClosestPin ? (item.landmarkName ? `${item.landmarkName} (${item.locationName || 'Map'})` : item.question || 'Closest Wins') : isPaSparet ? (item.destination ? `På Spåret: ${item.destination}` : 'På Spåret') : isMusic ? (item.question || 'Music Round') : (item.question || 'Untitled Question')}
                       </span>
                     </div>
 
@@ -1461,7 +1671,7 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
           </div>
 
           {/* Bottom Add Buttons */}
-          <div className="grid grid-cols-2 gap-1.5 mt-4 pt-3 border-t border-slate-800">
+          <div className="grid grid-cols-3 gap-1.5 mt-4 pt-3 border-t border-slate-800">
             <button
               type="button"
               onClick={handleAddQuestion}
@@ -1500,6 +1710,16 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
             >
               <TrainIcon className="w-3 h-3" />
               <span>+ Spåret</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => handleAddMusic()}
+              className="py-2 px-1.5 rounded-xl border border-dashed border-indigo-500/60 hover:bg-indigo-950/40 text-indigo-300 text-[11px] font-bold flex items-center justify-center gap-1 transition-all cursor-pointer"
+              title={`Insert Music Question (YouTube + Answer Rows) after slide #${activeIdx + 1}`}
+            >
+              <MusicIcon className="w-3 h-3 text-pink-400" />
+              <span>+ Music</span>
             </button>
 
             <button
@@ -2131,6 +2351,18 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
                         <TrainIcon className="w-3.5 h-3.5" />
                         <span>På Spåret</span>
                       </button>
+                      <button
+                        type="button"
+                        onClick={() => handleSwitchQuestionType('music')}
+                        className={`flex items-center gap-1.5 px-3 py-1 rounded-lg font-bold transition-all cursor-pointer ${
+                          activeQ.type === 'music'
+                            ? 'bg-rose-600 text-white shadow-sm'
+                            : 'text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        <MusicIcon className="w-3.5 h-3.5" />
+                        <span>Music Round</span>
+                      </button>
                     </div>
                   </div>
 
@@ -2142,6 +2374,10 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
                       {activeQ.type === 'pa_sparet' ? (
                         <span className="px-2.5 py-1 rounded-lg bg-amber-500/20 border border-amber-500/40 text-amber-300 font-mono text-xs font-bold">
                           10 → 8 → 6 → 4 → 2 pts
+                        </span>
+                      ) : activeQ.type === 'music' ? (
+                        <span className="px-2.5 py-1 rounded-lg bg-rose-500/20 border border-rose-500/40 text-rose-300 font-mono text-xs font-bold">
+                          {activeQ.fields?.reduce((s, f) => s + (Number(f.points) || 1), 0) || 1} pts ({activeQ.fields?.length || 1} {activeQ.fields?.length === 1 ? 'row' : 'rows'})
                         </span>
                       ) : (
                         <div className="flex items-center gap-1.5">
@@ -2235,6 +2471,8 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
                       ? "Enter your free-text question here (e.g. What superhero's secret identity is Peter Parker?)"
                       : activeQ.type === 'pa_sparet'
                       ? "Enter your train prompt (e.g. Where are we heading? / Vart är vi på väg?)"
+                      : activeQ.type === 'music'
+                      ? "Enter your music prompt (e.g. Listen closely! Name the artist and song title!)"
                       : "Enter your question here (e.g. Which planet is closest to the Sun?)"
                   }
                   className="w-full px-4 py-3 rounded-2xl bg-slate-950 border border-slate-800 focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20 text-white text-lg sm:text-xl font-bold outline-none resize-none transition-all"
@@ -2800,6 +3038,329 @@ export default function QuizMaker({ initialQuestions = [], initialShowScoreboard
                               <span>{testResult.isCorrect ? '✓ ACCEPTED' : '✗ NOT ACCEPTED'}</span>
                               <span className="text-[10px] font-mono opacity-80 font-normal">
                                 ({testResult.reason})
+                              </span>
+                            </div>
+                          );
+                        })()
+                      ) : (
+                        <span className="text-[11px] text-slate-500 italic py-2 sm:py-0">
+                          Try typing a spelling variant above to test
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ) : activeQ.type === 'music' ? (
+                /* Music Round Configuration: YouTube Playback + Dynamic Answer Rows */
+                <div className="bg-slate-900 border-2 border-rose-500/40 rounded-3xl p-6 shadow-xl space-y-6">
+                  <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-800">
+                    <div className="flex items-center gap-2">
+                      <span className="w-2.5 h-2.5 rounded-full bg-rose-400 animate-pulse" />
+                      <span className="text-xs font-bold uppercase tracking-wider text-rose-300 flex items-center gap-1.5">
+                        <MusicIcon className="w-4 h-4 text-rose-400" />
+                        Music Round — YouTube Video & Free-Text Answer Rows
+                      </span>
+                    </div>
+                    <span className="text-[11px] text-rose-400/90 bg-rose-950/60 border border-rose-800/60 px-2.5 py-1 rounded-lg font-mono font-semibold">
+                      {activeQ.fields?.length || 1} Answer {(activeQ.fields?.length || 1) === 1 ? 'Row' : 'Rows'} • {activeQ.points || 1} Total Pts
+                    </span>
+                  </div>
+
+                  {/* Curated Track Presets Selector */}
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
+                        <SparklesIcon className="w-4 h-4 text-rose-400" />
+                        Choose from Curated Music Presets (or enter custom YouTube video below)
+                      </label>
+                      <span className="text-[11px] text-slate-500">Auto-fills video, offset, prompt & answer fields</span>
+                    </div>
+                    <select
+                      onChange={(e) => {
+                        const selected = MUSIC_PRESETS.find(p => p.name === e.target.value);
+                        if (selected) {
+                          handleUpdateActiveQuestion('question', selected.question);
+                          handleUpdateActiveQuestion('youtubeUrl', selected.youtubeUrl);
+                          handleUpdateActiveQuestion('videoStartTime', selected.videoStartTime);
+                          handleUpdateActiveQuestion('timeLimit', selected.timeLimit || 60);
+                          handleUpdateActiveQuestion('secretNote', selected.secretNote || '');
+                          const clonedFields = JSON.parse(JSON.stringify(selected.fields));
+                          handleUpdateActiveQuestion('fields', clonedFields);
+                          handleUpdateActiveQuestion('points', clonedFields.reduce((s, f) => s + (Number(f.points) || 1), 0));
+                          showNotification(`Applied music preset: ${selected.name}`);
+                        }
+                      }}
+                      value={MUSIC_PRESETS.some(p => p.youtubeUrl === activeQ.youtubeUrl && p.fields?.[0]?.correctAnswer === activeQ.fields?.[0]?.correctAnswer) ? MUSIC_PRESETS.find(p => p.youtubeUrl === activeQ.youtubeUrl)?.name : ''}
+                      className="w-full px-4 py-2.5 rounded-xl bg-slate-950 border border-slate-800 focus:border-rose-500 text-white text-xs font-semibold outline-none cursor-pointer"
+                    >
+                      <option value="" disabled>Select a curated music preset...</option>
+                      {MUSIC_PRESETS.map((p) => (
+                        <option key={p.name} value={p.name}>
+                          {p.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* YouTube Video URL and Start Offset */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="md:col-span-2">
+                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-1.5">
+                        YouTube Music / Track Video URL <span className="text-rose-400">*</span>
+                      </label>
+                      <input
+                        type="url"
+                        value={activeQ.youtubeUrl || ''}
+                        onChange={(e) => handleUpdateActiveQuestion('youtubeUrl', e.target.value)}
+                        placeholder="https://www.youtube.com/watch?v=... or https://youtu.be/..."
+                        className="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-800 focus:border-rose-500 text-white text-xs font-mono outline-none transition-all"
+                      />
+                      <p className="text-[11px] text-slate-500 mt-1">
+                        Plays automatically on big screen while players type their answers.
+                      </p>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-1.5">
+                        Start At (Seconds)
+                      </label>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="number"
+                          min={0}
+                          max={3600}
+                          value={activeQ.videoStartTime !== undefined ? activeQ.videoStartTime : 0}
+                          onChange={(e) => handleUpdateActiveQuestion('videoStartTime', Math.max(0, parseInt(e.target.value, 10) || 0))}
+                          className="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-800 focus:border-rose-500 text-white text-sm font-mono outline-none transition-all"
+                        />
+                        <span className="text-xs text-slate-400 font-mono font-semibold">sec</span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 mt-1">
+                        Jump directly to chorus or opening riff.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* YouTube Live Embed Preview */}
+                  {(() => {
+                    const ytId = extractYouTubeId(activeQ.youtubeUrl);
+                    if (!ytId) return null;
+                    const previewSrc = `https://www.youtube.com/embed/${ytId}?start=${activeQ.videoStartTime || 0}&controls=1&rel=0`;
+                    return (
+                      <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-2">
+                        <div className="flex items-center justify-between text-xs text-slate-400">
+                          <span className="font-semibold text-rose-300 flex items-center gap-1.5">
+                            ▶ Live Video & Audio Preview
+                          </span>
+                          <span className="font-mono text-[11px]">ID: {ytId} (starts at {activeQ.videoStartTime || 0}s)</span>
+                        </div>
+                        <div className="relative w-full aspect-video max-w-xl mx-auto rounded-xl overflow-hidden border border-slate-800 bg-black shadow-lg">
+                          <iframe
+                            src={previewSrc}
+                            title="YouTube Music Preview"
+                            className="w-full h-full"
+                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                            allowFullScreen
+                          />
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {/* Answer Rows Configuration Header */}
+                  <div className="space-y-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2 pb-1">
+                      <div>
+                        <label className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
+                          <span>Answer Rows / Input Boxes ({activeQ.fields?.length || 0})</span>
+                        </label>
+                        <p className="text-[11px] text-slate-500 mt-0.5">
+                          Configure whether players guess artist, song title, or both. Add multiple rows for mashups or extra songs.
+                        </p>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={handleAddMusicField}
+                        className="px-3.5 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs shadow-md transition-all flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <PlusIcon className="w-3.5 h-3.5" />
+                        <span>Add Answer Row</span>
+                      </button>
+                    </div>
+
+                    {/* Field Rows List */}
+                    <div className="space-y-3">
+                      {(activeQ.fields || []).map((field, fIdx) => (
+                        <div
+                          key={field.id || fIdx}
+                          className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-3 hover:border-slate-700 transition-colors"
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                              <span className="w-6 h-6 rounded-lg bg-rose-500/20 text-rose-300 font-mono text-xs font-bold flex items-center justify-center border border-rose-500/40">
+                                {fIdx + 1}
+                              </span>
+
+                              {/* Answer Type Dropdown */}
+                              <select
+                                value={field.type || 'artist'}
+                                onChange={(e) => handleUpdateMusicField(fIdx, 'type', e.target.value)}
+                                className="px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 focus:border-rose-500 text-white font-bold text-xs outline-none cursor-pointer"
+                              >
+                                <option value="artist">🎤 Artist / Band</option>
+                                <option value="song">🎵 Song Name / Title</option>
+                                <option value="both">🎶 Artist & Song Name</option>
+                                <option value="custom">✏️ Custom Answer</option>
+                              </select>
+
+                              {/* Field Display Label */}
+                              <input
+                                type="text"
+                                value={field.label || ''}
+                                onChange={(e) => handleUpdateMusicField(fIdx, 'label', e.target.value)}
+                                placeholder="Field Label (e.g. Artist 1)"
+                                className="px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 focus:border-rose-500 text-slate-200 text-xs font-semibold outline-none w-36 sm:w-44"
+                              />
+                            </div>
+
+                            <div className="flex items-center gap-3">
+                              {/* Points for this field */}
+                              <div className="flex items-center gap-1.5">
+                                <label className="text-[11px] font-bold text-slate-400">Points:</label>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  max={100}
+                                  value={field.points !== undefined ? field.points : 1}
+                                  onChange={(e) => handleUpdateMusicField(fIdx, 'points', Math.max(0, parseInt(e.target.value, 10) || 0))}
+                                  className="w-14 px-2 py-1 rounded-lg bg-slate-900 border border-slate-800 focus:border-rose-500 text-center text-xs font-mono font-bold text-amber-300"
+                                />
+                              </div>
+
+                              {/* Delete button (disabled if only 1 row) */}
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveMusicField(fIdx)}
+                                disabled={(activeQ.fields || []).length <= 1}
+                                className={`p-1.5 rounded-lg transition-colors ${
+                                  (activeQ.fields || []).length <= 1
+                                    ? 'text-slate-700 cursor-not-allowed'
+                                    : 'text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 cursor-pointer'
+                                }`}
+                                title={(activeQ.fields || []).length <= 1 ? "At least one answer row is required" : "Remove this answer row"}
+                              >
+                                <TrashIcon className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Primary Answer & Accepted Spellings */}
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                            <div>
+                              <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-300 mb-1">
+                                Correct Answer <span className="text-rose-400">*</span>
+                              </label>
+                              <input
+                                type="text"
+                                value={field.correctAnswer || ''}
+                                onChange={(e) => handleUpdateMusicField(fIdx, 'correctAnswer', e.target.value)}
+                                placeholder={
+                                  field.type === 'artist'
+                                    ? 'e.g. Queen'
+                                    : field.type === 'song'
+                                    ? 'e.g. Bohemian Rhapsody'
+                                    : 'e.g. Queen - Bohemian Rhapsody'
+                                }
+                                className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-800 focus:border-rose-500 text-white font-bold text-xs outline-none transition-all"
+                              />
+                            </div>
+
+                            <div>
+                              <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-300 mb-1">
+                                Alternate Accepted Spellings <span className="text-slate-500 font-normal">(comma-separated)</span>
+                              </label>
+                              <input
+                                type="text"
+                                value={field.acceptedAnswers || ''}
+                                onChange={(e) => handleUpdateMusicField(fIdx, 'acceptedAnswers', e.target.value)}
+                                placeholder="e.g. The Queen, Queen band"
+                                className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-800 focus:border-rose-500 text-slate-200 text-xs font-semibold outline-none transition-all"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Add row bottom CTA */}
+                    <div className="pt-2">
+                      <button
+                        type="button"
+                        onClick={handleAddMusicField}
+                        className="w-full py-2.5 rounded-xl border border-dashed border-slate-800 hover:border-rose-500/60 text-slate-400 hover:text-rose-300 font-bold text-xs transition-all flex items-center justify-center gap-2 cursor-pointer bg-slate-950/40 hover:bg-slate-950"
+                      >
+                        <PlusIcon className="w-4 h-4 text-rose-400" />
+                        <span>+ Add Another Answer Row (e.g. Song Name, Artist 2, Song 2)</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Secret Trivia / Fun Fact Note (Shown on Reveal Screen) */}
+                  <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-2">
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-300">
+                      Trivia / Secret Fact <span className="text-slate-500 font-normal lowercase">(optional fun fact revealed with answers)</span>
+                    </label>
+                    <textarea
+                      rows={2}
+                      value={activeQ.secretNote || ''}
+                      onChange={(e) => handleUpdateActiveQuestion('secretNote', e.target.value)}
+                      placeholder="e.g. Released in 1975 on A Night at the Opera, stayed at #1 in the UK for 9 weeks..."
+                      className="w-full px-3.5 py-2 rounded-xl bg-slate-900 border border-slate-800 focus:border-rose-500 text-slate-200 text-xs outline-none resize-none"
+                    />
+                  </div>
+
+                  {/* Real-time Typo Buffer Tester */}
+                  <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold uppercase text-slate-300 flex items-center gap-1.5">
+                        <SparklesIcon className="w-3.5 h-3.5 text-rose-400" />
+                        Test Music Answer Matching in Real-Time
+                      </span>
+                      <span className="text-[10px] text-slate-500 font-mono">
+                        Buffer tolerates typos, accents, prefixes & casing
+                      </span>
+                    </div>
+
+                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 pt-1">
+                      <input
+                        type="text"
+                        value={testBufferInput}
+                        onChange={(e) => setTestBufferInput(e.target.value)}
+                        placeholder="Type player guess to test against answer fields (e.g. queen, bohemain)..."
+                        className="flex-1 px-4 py-2.5 rounded-xl bg-slate-900 border border-slate-800 focus:border-rose-500 text-white text-xs font-mono outline-none"
+                      />
+
+                      {testBufferInput.trim() ? (
+                        (() => {
+                          const matches = (activeQ.fields || []).map(f => ({
+                            field: f,
+                            res: checkFreeInputAnswer(testBufferInput, f.correctAnswer || '', f.acceptedAnswers || '')
+                          }));
+                          const anyMatched = matches.find(m => m.res.isCorrect);
+
+                          return anyMatched ? (
+                            <div className="px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-2 bg-emerald-500/20 border border-emerald-500/40 text-emerald-300">
+                              <span>✓ MATCHED: {anyMatched.field.label}</span>
+                              <span className="text-[10px] font-mono opacity-80 font-normal">
+                                ({anyMatched.res.reason})
+                              </span>
+                            </div>
+                          ) : (
+                            <div className="px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-2 bg-rose-500/20 border border-rose-500/40 text-rose-300">
+                              <span>✗ NO MATCH</span>
+                              <span className="text-[10px] font-mono opacity-80 font-normal">
+                                (Doesn't match any row)
                               </span>
                             </div>
                           );

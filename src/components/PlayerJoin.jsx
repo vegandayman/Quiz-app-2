@@ -4,10 +4,19 @@ import { db, ensureAuth } from '../firebase.js';
 import { checkFreeInputAnswer } from '../utils/answerMatcher.js';
 import WorldMap from './WorldMap.jsx';
 import { playEmergencyBrakeSound } from '../data/paSparetPresets.js';
+import { evaluateMusicAnswers, playMusicChimeSound } from '../data/musicPresets.js';
 import { rankPlayersWithTieBreak, detectTopTie } from '../utils/tieBreaker.js';
 import { normalizeQuestionsArray } from '../utils/quizNormalizer.js';
 
 // Clean inline SVGs (zero external dependencies)
+const MusicIcon = ({ className = 'w-6 h-6' }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M9 18V5l12-2v13" />
+    <circle cx="6" cy="18" r="3" />
+    <circle cx="18" cy="16" r="3" />
+  </svg>
+);
+
 const TrainIcon = ({ className = 'w-6 h-6' }) => (
   <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <rect width="16" height="16" x="4" y="3" rx="2" />
@@ -169,6 +178,8 @@ export default function PlayerJoin({ initialRoomCode = '', onOpenHost }) {
   const [myAnswer, setMyAnswer] = useState(null);
   const [playerTextInput, setPlayerTextInput] = useState('');
   const [isSubmittingText, setIsSubmittingText] = useState(false);
+  const [playerMusicInputs, setPlayerMusicInputs] = useState({});
+  const [isSubmittingMusic, setIsSubmittingMusic] = useState(false);
   const [selectedPin, setSelectedPin] = useState(null); // { lat, lng }
   const [isSubmittingPin, setIsSubmittingPin] = useState(false);
   const [isMapExpanded, setIsMapExpanded] = useState(false);
@@ -401,6 +412,7 @@ export default function PlayerJoin({ initialRoomCode = '', onOpenHost }) {
     setMyAnswer(null);
     setSelectedPin(null);
     setPlayerTextInput('');
+    setPlayerMusicInputs({});
     setRoomData(null);
     setRoomCode('');
     setErrorMessage('');
@@ -426,7 +438,9 @@ export default function PlayerJoin({ initialRoomCode = '', onOpenHost }) {
       if (myAnswers && myAnswers[qIndex] !== undefined) {
         const curAns = myAnswers[qIndex];
         setMyAnswer(
-          curAns.choiceIndex !== undefined
+          curAns.musicAnswers !== undefined
+            ? curAns.musicAnswers
+            : curAns.choiceIndex !== undefined
             ? curAns.choiceIndex
             : curAns.textAnswer !== undefined
             ? curAns.textAnswer
@@ -434,6 +448,9 @@ export default function PlayerJoin({ initialRoomCode = '', onOpenHost }) {
             ? { lat: curAns.lat, lng: curAns.lng }
             : true
         );
+        if (curAns.musicAnswers) {
+          setPlayerMusicInputs(curAns.musicAnswers);
+        }
         if (curAns.lat !== undefined && curAns.lng !== undefined) {
           setSelectedPin({ lat: Number(curAns.lat), lng: Number(curAns.lng) });
         }
@@ -444,6 +461,7 @@ export default function PlayerJoin({ initialRoomCode = '', onOpenHost }) {
         if (isNewQuestion) {
           setSelectedPin(null);
           setPlayerTextInput('');
+          setPlayerMusicInputs({});
           setIsMapExpanded(false);
           setShowPhotoModal(false);
         }
@@ -638,6 +656,51 @@ export default function PlayerJoin({ initialRoomCode = '', onOpenHost }) {
     });
 
     setIsSubmittingText(false);
+  };
+
+  // Handle Player Submitting / Locking in Answers for Music Question
+  const handleSubmitMusic = async (e) => {
+    if (e && e.preventDefault) e.preventDefault();
+    if (myAnswer !== null || !roomData || timeLeft <= 0 || isSubmittingMusic) return;
+
+    // Check that at least one field has input
+    const hasAnyInput = Object.values(playerMusicInputs).some(
+      (val) => typeof val === 'string' && val.trim().length > 0
+    );
+    if (!hasAnyInput) return;
+
+    setIsSubmittingMusic(true);
+    const currentQIndex = roomData.currentQuestionIndex || 0;
+    const currentQ = normalizeQuestionsArray(roomData.questions)[currentQIndex];
+    const targetFields = Array.isArray(currentQ?.fields) ? currentQ.fields : [];
+
+    // Evaluate answers with typo/punctuation buffer
+    const evalResult = evaluateMusicAnswers(playerMusicInputs, targetFields);
+
+    // Audio chime on lock-in
+    playMusicChimeSound();
+
+    setMyAnswer(playerMusicInputs);
+
+    const startTime = roomData.questionStartTime || Date.now();
+    const elapsed = Math.max(0, Math.floor((Date.now() - startTime) / 1000));
+    const currentScore = roomData.players?.[currentPlayerId]?.score || 0;
+
+    await safePlayerUpdate({
+      score: currentScore + evalResult.totalPoints,
+      [`answers/${currentQIndex}`]: {
+        musicAnswers: playerMusicInputs,
+        playerMusicInputs: playerMusicInputs,
+        textAnswer: evalResult.summaryText || Object.values(playerMusicInputs).join(' / '),
+        isCorrect: evalResult.isAllCorrect,
+        pointsAwarded: evalResult.totalPoints,
+        fieldResults: evalResult.fieldResults,
+        timeElapsedSec: elapsed,
+        answeredAt: Date.now()
+      }
+    });
+
+    setIsSubmittingMusic(false);
   };
 
   const status = roomData?.status || 'lobby';
@@ -884,9 +947,17 @@ export default function PlayerJoin({ initialRoomCode = '', onOpenHost }) {
                     <span>På Spåret</span>
                   </span>
                 )}
+                {currentQuestion?.type === 'music' && (
+                  <span className="px-1.5 py-0.5 rounded bg-rose-500/20 border border-rose-500/40 text-[10px] font-mono text-rose-300 font-bold flex items-center gap-1">
+                    <MusicIcon className="w-3 h-3 text-rose-400" />
+                    <span>Music Round</span>
+                  </span>
+                )}
                 <span className="px-1.5 py-0.5 rounded bg-amber-500/20 border border-amber-500/40 text-[10px] font-mono text-amber-300 font-bold">
                   {currentQuestion?.type === 'pa_sparet'
                     ? `Tier: ${currentPaSparetTier} pts`
+                    : currentQuestion?.type === 'music'
+                    ? `${currentQuestion?.points || currentQuestion?.fields?.reduce((s, f) => s + (Number(f.points) || 1), 0) || 1} pts`
                     : `${currentQuestion?.points !== undefined && currentQuestion.points !== '' ? currentQuestion.points : 1} ${Number(currentQuestion?.points ?? 1) === 1 ? 'pt' : 'pts'}`}
                 </span>
               </div>
@@ -1232,7 +1303,130 @@ export default function PlayerJoin({ initialRoomCode = '', onOpenHost }) {
                   </p>
                 </div>
               )
+            ) : currentQuestion?.type === 'music' ? (
+              myAnswer === null ? (
+                timeLeft > 0 ? (
+                  <form onSubmit={handleSubmitMusic} className="w-full space-y-4">
+                    <div className="bg-slate-900 border border-rose-500/40 rounded-3xl p-5 shadow-2xl text-left space-y-4">
+                      <div className="flex items-center justify-between pb-2 border-b border-slate-800">
+                        <div className="flex items-center gap-2">
+                          <span className="w-2.5 h-2.5 rounded-full bg-rose-400 animate-pulse" />
+                          <span className="text-xs font-bold uppercase tracking-wider text-rose-300 flex items-center gap-1.5">
+                            <MusicIcon className="w-4 h-4 text-rose-400" />
+                            Music Round
+                          </span>
+                        </div>
+                        <span className="text-[11px] font-mono text-slate-400">
+                          Listen on big screen
+                        </span>
+                      </div>
 
+                      <div className="space-y-1">
+                        <h3 className="text-base font-black text-white">
+                          {currentQuestion.question || 'Name the artist and song title!'}
+                        </h3>
+                        <p className="text-xs text-slate-400">
+                          Fill in the fields below. Typo & punctuation tolerance is active.
+                        </p>
+                      </div>
+
+                      {/* Dynamic Answer Fields */}
+                      <div className="space-y-3 pt-1">
+                        {(currentQuestion.fields || [
+                          { id: 'f-1', type: 'artist', label: 'Artist 1', points: 1 },
+                          { id: 'f-2', type: 'song', label: 'Song Name 1', points: 1 }
+                        ]).map((field, idx) => (
+                          <div key={field.id || idx} className="space-y-1">
+                            <div className="flex items-center justify-between">
+                              <label className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
+                                <span>{field.type === 'artist' ? '🎤' : field.type === 'song' ? '🎵' : field.type === 'both' ? '🎶' : '✏️'}</span>
+                                <span>{field.label || `Answer ${idx + 1}`}</span>
+                              </label>
+                              <span className="text-[11px] font-mono text-amber-300 font-bold">
+                                {field.points || 1} pt
+                              </span>
+                            </div>
+
+                            <input
+                              type="text"
+                              autoFocus={idx === 0}
+                              value={playerMusicInputs[field.id] || ''}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setPlayerMusicInputs(prev => ({
+                                  ...prev,
+                                  [field.id]: val
+                                }));
+                              }}
+                              placeholder={
+                                field.type === 'artist'
+                                  ? 'Type artist / band name...'
+                                  : field.type === 'song'
+                                  ? 'Type song title...'
+                                  : 'Type answer...'
+                              }
+                              className="w-full bg-slate-950 border border-slate-700 focus:border-rose-400 focus:ring-2 focus:ring-rose-400/20 rounded-2xl px-4 py-3 text-sm sm:text-base font-bold text-white placeholder-slate-600 outline-none transition-all"
+                            />
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Lock-In Button */}
+                      <button
+                        type="submit"
+                        disabled={
+                          isSubmittingMusic ||
+                          !Object.values(playerMusicInputs).some(v => typeof v === 'string' && v.trim().length > 0)
+                        }
+                        className={`w-full py-4 rounded-2xl font-black text-base shadow-xl transition-all cursor-pointer flex items-center justify-center gap-2 ${
+                          !Object.values(playerMusicInputs).some(v => typeof v === 'string' && v.trim().length > 0)
+                            ? 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700'
+                            : 'bg-gradient-to-r from-rose-600 to-pink-600 hover:from-rose-500 hover:to-pink-500 text-white shadow-rose-600/30 active:scale-[0.98]'
+                        }`}
+                      >
+                        {isSubmittingMusic ? (
+                          <span>Locking In Answers...</span>
+                        ) : (
+                          <>
+                            <span>🔒 Lock In My Answers</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </form>
+                ) : (
+                  <div className="bg-slate-900 border border-slate-800 rounded-3xl p-8 text-center shadow-xl space-y-3">
+                    <div className="w-12 h-12 rounded-full bg-slate-800 flex items-center justify-center text-slate-400 mx-auto">
+                      <MusicIcon className="w-6 h-6" />
+                    </div>
+                    <h3 className="text-xl font-black text-white">Time's Up!</h3>
+                    <p className="text-xs text-slate-400">
+                      Look up at the big screen to see the track and answers revealed!
+                    </p>
+                  </div>
+                )
+              ) : (
+                /* Player has locked in their music answers */
+                <div className="bg-slate-900 border border-rose-500/40 rounded-3xl p-8 text-center shadow-2xl space-y-4">
+                  <div className="w-16 h-16 mx-auto rounded-full bg-rose-500/20 border border-rose-500/40 flex items-center justify-center text-rose-400 mb-2">
+                    <CheckCircleIcon className="w-8 h-8" />
+                  </div>
+                  <h3 className="text-xl font-black text-white">Answers Locked In!</h3>
+                  <div className="space-y-2 text-left bg-slate-950 p-4 rounded-2xl border border-slate-800">
+                    {(currentQuestion.fields || []).map((field, idx) => (
+                      <div key={field.id || idx} className="flex items-center justify-between text-xs">
+                        <span className="text-slate-400 font-bold">{field.label}:</span>
+                        <span className="font-mono font-bold text-rose-300">
+                          "{playerMusicInputs[field.id] || myAnswer?.[field.id] || '(Blank)'}"
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-xs text-slate-400">
+                    Typo buffer is running. Look up at the big screen when time expires!
+                  </p>
+                </div>
+              )
             ) : (
               /* Multiple-Choice Question Mode */
               myAnswer === null ? (
@@ -1306,6 +1500,7 @@ export default function PlayerJoin({ initialRoomCode = '', onOpenHost }) {
           const isClosestPin = currentQuestion?.type === 'closest_pin';
           const isFree = currentQuestion?.type === 'free_input';
           const isPaSparet = currentQuestion?.type === 'pa_sparet';
+          const isMusic = currentQuestion?.type === 'music';
 
           if (isClosestPin) {
             const isWinner = Boolean(lastAnswerObj?.isWinner);
@@ -1422,6 +1617,118 @@ export default function PlayerJoin({ initialRoomCode = '', onOpenHost }) {
                     <p className="text-xs text-slate-400">
                       The destination was <strong className="text-amber-300">{currentQuestion.destination || currentQuestion.correctAnswer}</strong>
                     </p>
+                    <p className="text-xs text-slate-400 pt-1">
+                      Total Score: <span className="text-purple-300 font-mono font-bold">{myPlayerObj?.score || 0} pts</span>
+                    </p>
+                  </div>
+                )}
+              </main>
+            );
+          }
+
+          if (isMusic) {
+            const hasAnswered = lastAnswerObj !== undefined && (lastAnswerObj.musicAnswers || lastAnswerObj.playerMusicInputs || lastAnswerObj.textAnswer !== undefined);
+            const pointsWon = lastAnswerObj?.pointsAwarded || 0;
+            const fieldResults = lastAnswerObj?.fieldResults || [];
+            const isAllCorrect = Boolean(lastAnswerObj?.isCorrect);
+
+            return (
+              <main className="my-auto text-center flex flex-col items-center w-full max-w-sm mx-auto space-y-4">
+                {isAllCorrect ? (
+                  <div className="p-8 rounded-3xl bg-emerald-950/60 border-2 border-emerald-500 shadow-2xl w-full animate-in zoom-in-95 duration-200 space-y-3">
+                    <CheckCircleIcon className="w-16 h-16 text-emerald-400 mx-auto animate-bounce" />
+                    <h2 className="text-2xl font-black text-white">Full Score! 🎵</h2>
+                    <p className="text-2xl font-black text-emerald-400">
+                      +{pointsWon} {pointsWon === 1 ? 'Point' : 'Points'}
+                    </p>
+                    <div className="space-y-1.5 text-xs text-left bg-slate-950 p-3 rounded-2xl border border-emerald-500/30">
+                      {(currentQuestion?.fields || []).map((field, idx) => {
+                        const fr = fieldResults.find(f => f.fieldId === field.id || f.label === field.label);
+                        return (
+                          <div key={field.id || idx} className="flex items-center justify-between py-1 border-b border-slate-800/60 last:border-0">
+                            <div>
+                              <span className="text-[10px] text-slate-400 uppercase font-bold block">{field.label}:</span>
+                              <span className="font-bold text-emerald-300 font-mono text-xs">
+                                "{fr?.playerText || playerMusicInputs[field.id] || field.correctAnswer}"
+                              </span>
+                            </div>
+                            <span className="text-emerald-400 font-bold">✓</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <p className="text-xs text-slate-400 pt-1">
+                      Total Score: <span className="text-purple-300 font-mono font-bold">{myPlayerObj?.score || 0} pts</span>
+                    </p>
+                  </div>
+                ) : pointsWon > 0 ? (
+                  <div className="p-8 rounded-3xl bg-amber-950/60 border-2 border-amber-500 shadow-2xl w-full animate-in zoom-in-95 duration-200 space-y-3">
+                    <SparklesIcon className="w-16 h-16 text-amber-400 mx-auto" />
+                    <h2 className="text-2xl font-black text-white">Partial Points! 🎶</h2>
+                    <p className="text-2xl font-black text-amber-400">
+                      +{pointsWon} {pointsWon === 1 ? 'Point' : 'Points'}
+                    </p>
+                    <div className="space-y-2 text-xs text-left bg-slate-950 p-3 rounded-2xl border border-amber-500/30">
+                      {(currentQuestion?.fields || []).map((field, idx) => {
+                        const fr = fieldResults.find(f => f.fieldId === field.id || f.label === field.label);
+                        const isFieldCorrect = Boolean(fr?.isCorrect);
+                        return (
+                          <div key={field.id || idx} className="py-1 border-b border-slate-800/60 last:border-0 flex items-center justify-between">
+                            <div>
+                              <span className="text-[10px] text-slate-400 uppercase font-bold block">{field.label}:</span>
+                              <span className={`font-mono text-xs font-bold ${isFieldCorrect ? 'text-emerald-300' : 'text-rose-300'}`}>
+                                "{fr?.playerText || playerMusicInputs[field.id] || '-'}"
+                              </span>
+                              {!isFieldCorrect && (
+                                <span className="text-[10px] text-slate-500 block">
+                                  Correct: {field.correctAnswer}
+                                </span>
+                              )}
+                            </div>
+                            <span className={`font-bold ${isFieldCorrect ? 'text-emerald-400' : 'text-rose-400'}`}>
+                              {isFieldCorrect ? '✓' : '✗'}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <p className="text-xs text-slate-400 pt-1">
+                      Total Score: <span className="text-purple-300 font-mono font-bold">{myPlayerObj?.score || 0} pts</span>
+                    </p>
+                  </div>
+                ) : hasAnswered ? (
+                  <div className="p-8 rounded-3xl bg-rose-950/60 border border-rose-500/60 shadow-2xl w-full animate-in zoom-in-95 duration-200 space-y-3">
+                    <XCircleIcon className="w-16 h-16 text-rose-400 mx-auto" />
+                    <h2 className="text-2xl font-black text-white">Nice Try!</h2>
+                    <p className="text-sm font-bold text-rose-300">+0 Points</p>
+                    <div className="space-y-2 text-xs text-left bg-slate-950 p-3 rounded-2xl border border-rose-500/30">
+                      {(currentQuestion?.fields || []).map((field, idx) => (
+                        <div key={field.id || idx} className="py-1 border-b border-slate-800/60 last:border-0">
+                          <span className="text-[10px] text-slate-400 uppercase font-bold block">{field.label}:</span>
+                          <span className="text-slate-300 font-sans text-xs font-semibold block">
+                            Correct: <strong className="text-emerald-300">{field.correctAnswer}</strong>
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                    <p className="text-xs text-slate-400 pt-1">
+                      Total Score: <span className="text-purple-300 font-mono font-bold">{myPlayerObj?.score || 0} pts</span>
+                    </p>
+                  </div>
+                ) : (
+                  <div className="p-8 rounded-3xl bg-slate-900 border border-slate-800 shadow-2xl w-full space-y-3">
+                    <MusicIcon className="w-14 h-14 text-rose-400 mx-auto opacity-70" />
+                    <h2 className="text-xl font-black text-white">No Answer Submitted</h2>
+                    <div className="space-y-1.5 text-xs text-left bg-slate-950 p-3 rounded-2xl border border-slate-800">
+                      {(currentQuestion?.fields || []).map((field, idx) => (
+                        <div key={field.id || idx} className="py-1 border-b border-slate-800/60 last:border-0">
+                          <span className="text-[10px] text-slate-400 uppercase font-bold block">{field.label}:</span>
+                          <span className="text-slate-300 font-sans text-xs font-semibold block">
+                            <strong className="text-emerald-300">{field.correctAnswer}</strong>
+                          </span>
+                        </div>
+                      ))}
+                    </div>
                     <p className="text-xs text-slate-400 pt-1">
                       Total Score: <span className="text-purple-300 font-mono font-bold">{myPlayerObj?.score || 0} pts</span>
                     </p>

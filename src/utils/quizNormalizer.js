@@ -166,6 +166,38 @@ export function sanitizeQuestionForFirebase(q, idx = 0, fallbackScoreboard = fal
     };
   }
 
+  // 6. Music Question (YouTube Auto-Play + Dynamic Multi-Field Free-Text Answers)
+  if (type === 'music') {
+    const defaultFields = [
+      { id: 'f-1', type: 'artist', label: 'Artist 1', correctAnswer: '', acceptedAnswers: '', points: 1 }
+    ];
+
+    const rawFields = Array.isArray(q.fields) && q.fields.length > 0 ? q.fields : defaultFields;
+    const cleanFields = rawFields.map((f, fIdx) => ({
+      id: f.id || `f-${fIdx + 1}`,
+      type: f.type === 'song' ? 'song' : (f.type === 'custom' ? 'custom' : 'artist'),
+      label: f.label || (f.type === 'song' ? `Song Name ${fIdx + 1}` : `Artist ${fIdx + 1}`),
+      correctAnswer: f.correctAnswer || '',
+      acceptedAnswers: f.acceptedAnswers || '',
+      points: f.points !== undefined && f.points !== '' && !isNaN(Number(f.points)) ? Math.max(0, Number(f.points)) : 1
+    }));
+
+    const calculatedTotalPoints = cleanFields.reduce((sum, f) => sum + (Number(f.points) || 1), 0);
+
+    return {
+      id,
+      type: 'music',
+      question: q.question || 'Listen to the song and name the artist and title!',
+      youtubeUrl: q.youtubeUrl || '',
+      videoStartTime: q.videoStartTime !== undefined && !isNaN(Number(q.videoStartTime)) ? Number(q.videoStartTime) : 0,
+      fields: cleanFields,
+      points: calculatedTotalPoints > 0 ? calculatedTotalPoints : (q.points && !isNaN(Number(q.points)) ? Number(q.points) : 1),
+      secretNote: q.secretNote || '',
+      timeLimit: q.timeLimit && !isNaN(Number(q.timeLimit)) ? Number(q.timeLimit) : 60,
+      showScoreboardAfterQuestion: showScoreboard
+    };
+  }
+
   // 6. Standard 4-Choice Question
   const rawOptions = Array.isArray(q.options) && q.options.length >= 2 ? q.options : ['Option 1', 'Option 2', 'Option 3', 'Option 4'];
   const cleanOptions = rawOptions.slice(0, 4).map((opt) => (opt !== undefined && opt !== null ? String(opt) : ''));

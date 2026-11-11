@@ -64,6 +64,14 @@ const TrophyIcon = ({ className = 'w-6 h-6' }) => (
   </svg>
 );
 
+const MusicIcon = ({ className = 'w-5 h-5' }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M9 18V5l12-2v13" />
+    <circle cx="6" cy="18" r="3" />
+    <circle cx="18" cy="16" r="3" />
+  </svg>
+);
+
 const TvIcon = ({ className = 'w-6 h-6' }) => (
   <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <rect width="20" height="15" x="2" y="7" rx="2" ry="2" />
@@ -509,6 +517,24 @@ export default function LiveDisplay({ roomCode: initialRoomCode = '', onSwitchTo
     }
   });
 
+  // Music Round calculations
+  const isMusic = currentQuestion?.type === 'music';
+  const musicSubmissions = [];
+  players.forEach((p) => {
+    const ans = p.answers?.[currentQIndex];
+    if (ans !== undefined && isMusic && (ans.musicAnswers || ans.playerMusicInputs || ans.textAnswer !== undefined)) {
+      musicSubmissions.push({
+        playerId: p.id,
+        playerName: p.name,
+        musicAnswers: ans.musicAnswers || ans.playerMusicInputs || {},
+        textAnswer: ans.textAnswer || '',
+        isCorrect: Boolean(ans.isCorrect),
+        pointsAwarded: ans.pointsAwarded || 0,
+        fieldResults: ans.fieldResults || []
+      });
+    }
+  });
+
   const totalQuestions = allSlides.filter(q => q && q.type !== 'splash' && q.type !== 'end').length;
   const questionsPassed = allSlides.slice(0, currentQIndex + 1).filter(q => q && q.type !== 'splash' && q.type !== 'end').length;
 
@@ -841,18 +867,19 @@ export default function LiveDisplay({ roomCode: initialRoomCode = '', onSwitchTo
               {isClosestPin && <MapPinIcon className="w-4 h-4 text-emerald-400" />}
               {isFreeInput && <KeyboardIcon className="w-4 h-4 text-cyan-400" />}
               {isPaSparet && <TrainIcon className="w-4 h-4 text-amber-400" />}
-              <span>{isClosestPin ? 'Closest-Wins Question' : isFreeInput ? 'Free-Text Question' : isPaSparet ? 'På Spåret Train Journey' : 'Question'} {questionsPassed} of {totalQuestions}</span>
+              {isMusic && <MusicIcon className="w-4 h-4 text-rose-400" />}
+              <span>{isClosestPin ? 'Closest-Wins Question' : isFreeInput ? 'Free-Text Question' : isPaSparet ? 'På Spåret Train Journey' : isMusic ? 'Music Round' : 'Question'} {questionsPassed} of {totalQuestions}</span>
             </span>
-            <span className="px-3 py-1.5 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-300 text-xs font-mono font-bold">
-              {isPaSparet ? 'Max 10 pts' : `${currentQuestion?.points !== undefined && currentQuestion.points !== '' ? currentQuestion.points : 1} ${Number(currentQuestion?.points ?? 1) === 1 ? 'pt' : 'pts'}`}
+            <span className="px-3.5 py-1.5 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-300 text-xs font-mono font-bold">
+              {isPaSparet ? 'Max 10 pts' : isMusic ? `${currentQuestion?.points || currentQuestion?.fields?.reduce((s, f) => s + (Number(f.points) || 1), 0) || 1} pts total` : `${currentQuestion?.points !== undefined && currentQuestion.points !== '' ? currentQuestion.points : 1} ${Number(currentQuestion?.points ?? 1) === 1 ? 'pt' : 'pts'}`}
             </span>
           </div>
 
           {!isReveal ? (
             <div className={`w-16 h-16 rounded-full bg-slate-900 border-2 flex items-center justify-center shadow-lg ${
-              isPaSparet ? 'border-amber-500 shadow-amber-500/20' : 'border-purple-500 shadow-purple-500/20'
+              isPaSparet ? 'border-amber-500 shadow-amber-500/20' : isMusic ? 'border-rose-500 shadow-rose-500/20' : 'border-purple-500 shadow-purple-500/20'
             }`}>
-              <span className={`text-2xl font-black ${timeLeft <= 5 ? 'text-rose-400 animate-ping' : isPaSparet ? 'text-amber-300' : 'text-purple-300'}`}>
+              <span className={`text-2xl font-black ${timeLeft <= 5 ? 'text-rose-400 animate-ping' : isPaSparet ? 'text-amber-300' : isMusic ? 'text-rose-300' : 'text-purple-300'}`}>
                 {timeLeft}
               </span>
             </div>
@@ -865,7 +892,7 @@ export default function LiveDisplay({ roomCode: initialRoomCode = '', onSwitchTo
           <div className="flex items-center gap-4">
             <div className="text-right">
               <p className="text-xs uppercase tracking-wider text-slate-400 font-bold">{isPaSparet ? 'Brakes Pulled' : 'Answers'}</p>
-              <p className="text-xl font-black text-slate-100">{isPaSparet ? paSparetSubmissions.length : totalAnswersSubmitted} / {players.length}</p>
+              <p className="text-xl font-black text-slate-100">{isPaSparet ? paSparetSubmissions.length : isMusic ? musicSubmissions.length : totalAnswersSubmitted} / {players.length}</p>
             </div>
 
             <button
@@ -879,7 +906,7 @@ export default function LiveDisplay({ roomCode: initialRoomCode = '', onSwitchTo
         </header>
 
         <main className={`my-auto w-full mx-auto flex flex-col items-center transition-all duration-300 ${
-          isClosestPin || isPaSparet ? 'max-w-7xl 2xl:max-w-[95vw] px-2 sm:px-6' : 'max-w-5xl'
+          isClosestPin || isPaSparet || isMusic ? 'max-w-7xl 2xl:max-w-[95vw] px-2 sm:px-6' : 'max-w-5xl'
         }`}>
           {!(isPaSparet && isReveal) && (
             <div className={`w-full bg-slate-900/90 border border-slate-800 rounded-3xl text-center shadow-2xl transition-all ${
@@ -887,10 +914,12 @@ export default function LiveDisplay({ roomCode: initialRoomCode = '', onSwitchTo
                 ? 'py-2 px-4 mb-3'
                 : isPaSparet
                   ? 'py-3.5 px-6 mb-4'
-                  : 'p-6 sm:p-8 mb-6'
+                  : isMusic
+                    ? 'py-3 px-6 mb-4'
+                    : 'p-6 sm:p-8 mb-6'
             }`}>
-              <h2 className={`${(isClosestPin && isReveal) ? 'text-base sm:text-lg font-bold' : isPaSparet ? 'text-xl sm:text-2xl font-bold' : 'text-2xl sm:text-4xl font-black'} tracking-tight text-white leading-snug`}>
-                {currentQuestion?.question || (isPaSparet ? 'Vart är vi på väg? / Where are we heading?' : 'Question')}
+              <h2 className={`${(isClosestPin && isReveal) ? 'text-base sm:text-lg font-bold' : isPaSparet ? 'text-xl sm:text-2xl font-bold' : isMusic ? 'text-xl sm:text-3xl font-black' : 'text-2xl sm:text-4xl font-black'} tracking-tight text-white leading-snug`}>
+                {currentQuestion?.question || (isPaSparet ? 'Vart är vi på väg? / Where are we heading?' : isMusic ? 'Listen closely! Name the artist and song title!' : 'Question')}
               </h2>
             </div>
           )}
@@ -1241,6 +1270,220 @@ export default function LiveDisplay({ roomCode: initialRoomCode = '', onSwitchTo
                     </span>
                   </p>
                 )}
+              </div>
+            )
+          ) : isMusic ? (
+            !isReveal ? (
+              /* Active Music Question Stage: Auto-Playing YouTube Video + Target Rows Checklist */
+              <div className="w-full">
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+                  {/* Left Column: YouTube Track Video / Audio (7 cols) */}
+                  <div className="lg:col-span-7 flex flex-col justify-center">
+                    <div className="relative w-full aspect-video rounded-3xl overflow-hidden bg-black border-2 border-rose-500/40 shadow-2xl shadow-rose-950/40">
+                      {extractYouTubeId(currentQuestion?.youtubeUrl) ? (
+                        <iframe
+                          className="w-full h-full object-cover"
+                          src={`https://www.youtube-nocookie.com/embed/${extractYouTubeId(currentQuestion.youtubeUrl)}?autoplay=1&mute=0&start=${Number(currentQuestion?.videoStartTime || 0)}&controls=1&rel=0&modestbranding=1`}
+                          title="Music Round Track"
+                          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                          allowFullScreen
+                        />
+                      ) : (
+                        <div className="w-full h-full flex flex-col items-center justify-center text-center p-8 bg-slate-950">
+                          <MusicIcon className="w-16 h-16 text-rose-400 mb-3 animate-pulse" />
+                          <h4 className="text-xl font-bold text-white mb-1">Track Audio Playing</h4>
+                          <p className="text-sm text-slate-400 max-w-sm">
+                            Listen closely and identify the requested details!
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Right Column: Audio Equalizer & What to Listen For (5 cols) */}
+                  <div className="lg:col-span-5 flex flex-col justify-between space-y-4">
+                    <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
+                      {/* Animated Audio Equalizer Visualizer */}
+                      <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+                        <div className="flex items-center gap-2">
+                          <span className="w-3 h-3 rounded-full bg-rose-400 animate-ping" />
+                          <span className="text-xs font-bold uppercase tracking-wider text-rose-300">
+                            Now Playing
+                          </span>
+                        </div>
+                        {/* Audio equalizer wave bars */}
+                        <div className="flex items-end gap-1 h-5">
+                          <span className="w-1 bg-rose-400 rounded-full animate-[pulse_0.8s_ease-in-out_infinite] h-3" />
+                          <span className="w-1 bg-rose-400 rounded-full animate-[pulse_0.5s_ease-in-out_infinite] h-5" />
+                          <span className="w-1 bg-rose-400 rounded-full animate-[pulse_0.9s_ease-in-out_infinite] h-2" />
+                          <span className="w-1 bg-rose-400 rounded-full animate-[pulse_0.6s_ease-in-out_infinite] h-4" />
+                          <span className="w-1 bg-rose-400 rounded-full animate-[pulse_0.7s_ease-in-out_infinite] h-5" />
+                        </div>
+                      </div>
+
+                      <div>
+                        <h4 className="text-lg font-black text-white mb-1">
+                          Type Answers on Your Phone
+                        </h4>
+                        <p className="text-xs text-slate-400">
+                          Listen closely. Free-text inputs tolerate minor typos and punctuation!
+                        </p>
+                      </div>
+
+                      {/* Configured Fields Checklist (Prompts only - answers hidden!) */}
+                      <div className="space-y-2.5 pt-1">
+                        <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 block">
+                          Fields to identify:
+                        </span>
+                        {(currentQuestion?.fields || [
+                          { type: 'artist', label: 'Artist 1', points: 1 },
+                          { type: 'song', label: 'Song Name 1', points: 1 }
+                        ]).map((field, idx) => (
+                          <div
+                            key={field.id || idx}
+                            className="p-3 rounded-2xl bg-slate-950 border border-slate-800 flex items-center justify-between"
+                          >
+                            <div className="flex items-center gap-2.5">
+                              <span className="text-base">
+                                {field.type === 'artist' ? '🎤' : field.type === 'song' ? '🎵' : field.type === 'both' ? '🎶' : '✏️'}
+                              </span>
+                              <span className="text-sm font-bold text-slate-200">
+                                {field.label || `Field ${idx + 1}`}
+                              </span>
+                            </div>
+                            <span className="px-2.5 py-1 rounded-lg bg-rose-500/20 border border-rose-500/40 text-rose-300 font-mono text-xs font-bold">
+                              {field.points || 1} pt
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Live Players Submissions Counter */}
+                    <div className="p-4 rounded-2xl bg-slate-900/90 border border-slate-800 flex items-center justify-between shadow-lg">
+                      <div className="flex items-center gap-2">
+                        <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+                        <span className="text-xs font-bold text-slate-300">
+                          Submissions locked in:
+                        </span>
+                      </div>
+                      <span className="text-sm font-black text-emerald-400 font-mono">
+                        {musicSubmissions.length} of {players.length} players
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              /* Revealed Music Question Stage: YouTube Video + Revealed Answers Cards + Trivia */
+              <div className="w-full space-y-6 flex flex-col items-center">
+                {/* Embedded Video so crowd can review the track */}
+                {extractYouTubeId(currentQuestion?.youtubeUrl) && (
+                  <div className="relative max-w-xl w-full mx-auto rounded-3xl overflow-hidden border-2 border-rose-500/40 shadow-2xl bg-black aspect-video">
+                    <iframe
+                      className="w-full h-full object-cover"
+                      src={`https://www.youtube-nocookie.com/embed/${extractYouTubeId(currentQuestion.youtubeUrl)}?start=${Number(currentQuestion?.videoStartTime || 0)}&controls=1&rel=0&modestbranding=1`}
+                      title="Music Track Replay"
+                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                      allowFullScreen
+                    />
+                  </div>
+                )}
+
+                {/* Hero Answer Cards Grid */}
+                <div className="w-full grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-4xl">
+                  {(currentQuestion?.fields || []).map((field, idx) => (
+                    <div
+                      key={field.id || idx}
+                      className="bg-gradient-to-b from-rose-950/40 via-slate-900 to-slate-900 border-2 border-rose-500/70 rounded-3xl p-6 sm:p-8 text-center shadow-2xl shadow-rose-950/40 relative overflow-hidden"
+                    >
+                      <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-rose-500/20 border border-rose-500/40 text-rose-300 text-xs font-black uppercase tracking-wider mb-2">
+                        <span>{field.type === 'artist' ? '🎤' : field.type === 'song' ? '🎵' : '🎶'} {field.label || `Answer ${idx + 1}`}</span>
+                        <span>•</span>
+                        <span>{field.points || 1} {Number(field.points || 1) === 1 ? 'pt' : 'pts'}</span>
+                      </div>
+                      <h3 className="text-2xl sm:text-4xl font-black text-transparent bg-clip-text bg-gradient-to-r from-rose-100 via-pink-100 to-amber-200 tracking-tight leading-tight mt-1">
+                        {field.correctAnswer || 'Answer'}
+                      </h3>
+                      {field.acceptedAnswers && (
+                        <p className="text-xs text-rose-300/80 mt-2 font-medium">
+                          Also accepted: {field.acceptedAnswers}
+                        </p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Secret Trivia / Fun Fact Note */}
+                {currentQuestion?.secretNote && (
+                  <div className="max-w-3xl w-full p-5 rounded-2xl bg-slate-900/90 border border-amber-500/40 shadow-xl flex items-start gap-3 text-left">
+                    <span className="text-2xl shrink-0">💡</span>
+                    <div>
+                      <span className="text-xs font-mono font-bold uppercase tracking-wider text-amber-300 block mb-1">
+                        Behind the Music / Trivia
+                      </span>
+                      <p className="text-xs sm:text-sm text-slate-200 font-medium leading-relaxed">
+                        {currentQuestion.secretNote}
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Player Submissions Cloud */}
+                <div className="w-full max-w-4xl bg-slate-900/90 border border-slate-800 rounded-3xl p-6 shadow-xl">
+                  <div className="flex items-center justify-between pb-3 border-b border-slate-800 mb-4">
+                    <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                      Player Submissions ({musicSubmissions.filter((s) => s.isCorrect).length} of {musicSubmissions.length} Fully Correct)
+                    </span>
+                    <span className="text-xs font-mono text-rose-400">
+                      Typo & Spelling Buffer Applied
+                    </span>
+                  </div>
+
+                  {musicSubmissions.length === 0 ? (
+                    <p className="text-xs text-slate-500 italic text-center py-4">No answers were submitted for this question.</p>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                      {musicSubmissions.map((sub, idx) => (
+                        <div
+                          key={idx}
+                          className={`p-3 rounded-2xl border text-xs shadow transition-all ${
+                            sub.isCorrect
+                              ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-200'
+                              : sub.pointsAwarded > 0
+                                ? 'bg-amber-500/10 border-amber-500/40 text-amber-200'
+                                : 'bg-slate-950 border-slate-800 text-slate-300'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between font-bold mb-1.5 pb-1 border-b border-slate-800/60">
+                            <span className="truncate max-w-[140px]">{sub.playerName}</span>
+                            <span className={`font-mono text-[11px] font-black ${
+                              sub.pointsAwarded > 0 ? 'text-amber-400' : 'text-slate-500'
+                            }`}>
+                              +{sub.pointsAwarded} pts
+                            </span>
+                          </div>
+                          {Array.isArray(sub.fieldResults) && sub.fieldResults.length > 0 ? (
+                            <div className="space-y-1">
+                              {sub.fieldResults.map((fr, fIdx) => (
+                                <div key={fIdx} className="flex items-center justify-between text-[11px] gap-1">
+                                  <span className="text-slate-400 truncate max-w-[90px]">{fr.label}:</span>
+                                  <span className={`font-mono truncate max-w-[120px] ${fr.isCorrect ? 'text-emerald-300 font-bold' : 'text-slate-400'}`}>
+                                    "{fr.playerText || '-'}" {fr.isCorrect ? '✓' : '✗'}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="font-mono text-[11px] text-slate-400 truncate">
+                              {sub.textAnswer || 'Submitted'}
+                            </p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
             )
           ) : (
